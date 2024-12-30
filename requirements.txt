@@ -1,2 +1,12 @@
 requests
 pandas
+pandas==1.5.3
+numpy==1.23.5
+seaborn==0.12.2
+plotly==5.11.0
+pyyaml==6.0
+matplotlib
+seaborn
+missingno
+...
+
