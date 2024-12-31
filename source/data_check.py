@@ -1,42 +1,46 @@
 import os
 import glob
 import pandas as pd
-import yaml
 from datetime import datetime
 from utils.config_loader import load_config
 from utils.logger import setup_logger
 
-# Configure logger
+# Logger yapılandırması
 logger = setup_logger(name="data_check", log_file="../logs/data_check.log", log_level="INFO")
 
+# Maksimum okunacak satır sayısı
+MAX_ROWS_READ = 5000
 
-MAX_ROWS_READ = 5000  # Her CSV için en fazla kaç satır okuyalım
+
+def validate_columns(df, required_columns):
+
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    return len(missing_columns) == 0, missing_columns
 
 
 def check_raw_data(config_path="../config/settings.yml"):
-    """
-    data/raw dizinindeki tüm CSV dosyalarını tarar ve temel kontrol raporu oluşturur.
 
-    Args:
-        config_path (str): Ayar dosyasının yolu.
-    """
     logger.info("Data check işlemi başlatılıyor...")
 
     # Konfigürasyonu yükle
     try:
         config = load_config(config_path)
-        RAW_DIR = config["paths"]["raw_dir"]
-        PROCESSED_DIR = config["paths"]["processed_dir"]
+        raw_dir = config["paths"]["raw_dir"]
+        processed_dir = config["paths"]["processed_dir"]
+        required_columns = config["data_check"]["required_columns"]
+    except KeyError as e:
+        logger.error(f"Ayar dosyasındaki eksik anahtar: {e}")
+        raise
     except Exception as e:
         logger.error(f"Ayar dosyası yüklenirken hata oluştu: {e}")
         raise
 
-    # Taranacak dosyaları bul
-    csv_files = glob.glob(os.path.join(RAW_DIR, "**/*.csv"), recursive=True)
+    # CSV dosyalarını bul
+    csv_files = glob.glob(os.path.join(raw_dir, "**/*.csv"), recursive=True)
     logger.info(f"Bulunan CSV dosya sayısı: {len(csv_files)}")
 
     if not csv_files:
-        logger.warning("Hiç CSV dosyası bulunamadı!")
+        logger.warning("Hiç CSV dosyası bulunamadı! İşlem sonlandırılıyor.")
         return
 
     report_rows = []
@@ -55,6 +59,7 @@ def check_raw_data(config_path="../config/settings.yml"):
         }
 
         try:
+            # Dosyayı oku
             df = pd.read_csv(csv_path, nrows=MAX_ROWS_READ)
 
             # Dosya boş mu?
@@ -64,17 +69,18 @@ def check_raw_data(config_path="../config/settings.yml"):
                 row_info["test_pass"] = False
                 row_info["notes"] = "Dosya tamamen boş."
             else:
+                # Veri çerçevesi bilgilerini al
                 row_info["row_count"] = df.shape[0]
                 row_info["col_count"] = df.shape[1]
                 row_info["columns"] = ", ".join(df.columns.tolist())
 
-                # Örnek mini testler
-                if not any("Date" in col or "date" in col.lower() for col in df.columns):
+                # Sütun doğrulama
+                columns_ok, missing_cols = validate_columns(df, required_columns)
+                if not columns_ok:
                     row_info["test_pass"] = False
-                    row_info["notes"] += "Date kolonu bulunamadı. "
-                if not any("Arithmetic Mean" in col or "value" in col.lower() for col in df.columns):
-                    row_info["test_pass"] = False
-                    row_info["notes"] += "Arithmetic Mean kolonu bulunamadı. "
+                    row_info["notes"] += f"Eksik sütunlar: {missing_cols}."
+
+                logger.info(f"Dosya bilgisi: {row_info}")
 
         except pd.errors.EmptyDataError:
             logger.error(f"Dosya tamamen boş: {csv_path}")
@@ -91,18 +97,23 @@ def check_raw_data(config_path="../config/settings.yml"):
 
         report_rows.append(row_info)
 
-        # Rapor oluşturma
-        df_report = pd.DataFrame(report_rows)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_csv_name = f"data_check_report_{timestamp}.csv"
-        output_path = os.path.join(PROCESSED_DIR, report_csv_name)
+    # Rapor oluştur
+    df_report = pd.DataFrame(report_rows)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_csv_name = f"data_check_report_{timestamp}.csv"
+    output_path = os.path.join(processed_dir, report_csv_name)
 
-        os.makedirs(PROCESSED_DIR, exist_ok=True)
-        df_report.to_csv(output_path, index=False)
-        logger.info(f"Data check raporu oluşturuldu: {output_path}")
+    os.makedirs(processed_dir, exist_ok=True)
+    df_report.to_csv(output_path, index=False)
+    logger.info(f"Data check raporu oluşturuldu: {output_path}")
 
-    if __name__ == "__main__":
-        try:
-            check_raw_data()
-        except Exception as e:
-            logger.critical(f"Program kritik bir hata ile sonlandı: {e}")
+    # Log dosyasına rapor özeti yaz
+    for index, row in df_report.iterrows():
+        logger.info(f"Rapor Satırı: {row.to_dict()}")
+
+
+if __name__ == "__main__":
+    try:
+        check_raw_data()
+    except Exception as e:
+        logger.critical(f"Program kritik bir hata ile sonlandı: {e}")
