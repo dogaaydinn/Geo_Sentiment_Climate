@@ -8,5 +8,6 @@ pyyaml==6.0
 matplotlib
 seaborn
 missingno
+scikit-learn
 ...
 
