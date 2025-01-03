@@ -1,50 +1,45 @@
 import os
-import pandas as pd
-import numpy as np
+
 import matplotlib.pyplot as plt
-import seaborn as sns
 import missingno as msno
-from utils.logger import setup_logger
+import numpy as np
+import pandas as pd
+import seaborn as sns
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
 from utils.config_loader import load_config
+from utils.logger import setup_logger
 
-
-# Config ve Logger Ayarları
+# Config and Logger Settings
 CONFIG_PATH = "../config/settings.yml"
 
 try:
-    # Config dosyasını yükle
+    # Load config file
     config = load_config(CONFIG_PATH)
+    if config is None:
+        raise ValueError("Config file could not be loaded or returned empty.")
 
-    # Dizinleri config'den al
+    # Get directories from config
     RAW_DIR = config["paths"]["raw_dir"]
     PROCESSED_DIR = config["paths"]["processed_dir"]
     PLOTS_DIR = config["paths"].get("plots_dir", "../plots")
     LOG_DIR = config["paths"].get("logs_dir", "../logs")
 
-    # Dizinlerin varlığını kontrol et ve oluştur
+    # Check and create directories if they don't exist
     os.makedirs(PLOTS_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    # Logger oluştur
+    # Create logger
     logger = setup_logger(name="data_preprocessing", log_file=os.path.join(LOG_DIR, "data_preprocessing.log"), log_level="INFO")
-    logger.info("Config dosyası ve dizinler başarıyla yüklendi.")
+    logger.info("Config file and directories loaded successfully.")
 except KeyError as e:
-    raise ValueError(f"Config dosyasındaki bir anahtar eksik: {e}")
+    raise ValueError(f"Missing key in config file: {e}")
 except Exception as e:
-    raise RuntimeError(f"Config yüklenirken hata oluştu: {e}")
+    raise RuntimeError(f"Error loading config: {e}")
 
 
 def load_data(file_path):
-    """
-    CSV formatındaki dosyayı yükler.
 
-    Args:
-        file_path (str): CSV dosyasının yolu.
-
-    Returns:
-        pd.DataFrame: Yüklenen veri seti.
-    """
     logger.info(f"Loading data from {file_path}")
     try:
         data = pd.read_csv(file_path)
@@ -55,13 +50,7 @@ def load_data(file_path):
         raise
 
 def save_plot(plot, filename):
-    """
-    Grafiği belirtilen dosyaya kaydeder.
 
-    Args:
-        plot (matplotlib.figure.Figure): Kaydedilecek grafik.
-        filename (str): Kaydedilecek dosyanın adı.
-    """
     filepath = os.path.join(PLOTS_DIR, filename)
     plot.savefig(filepath)
     logger.info(f"Plot saved to {filepath}")
@@ -69,12 +58,7 @@ def save_plot(plot, filename):
 
 
 def basic_info(df):
-    """
-    Veri setinin temel bilgilerini görüntüler.
 
-    Args:
-        df (pd.DataFrame): Veri seti.
-    """
     logger.info("Generating basic info of the dataset")
     info = {
         "Shape": df.shape,
@@ -121,16 +105,7 @@ def fill_missing_values(df, method="mean"):
 
 
 def remove_null_values(df, subset_cols):
-    """
-    Eksik değerlere sahip satırları çıkarır.
 
-    Args:
-        df (pd.DataFrame): Veri seti.
-        subset_cols (list): Eksik değer kontrolü yapılacak sütunlar.
-
-    Returns:
-        pd.DataFrame: Eksik değerlerin çıkarıldığı veri seti.
-    """
     logger.info("Removing rows with null values")
     try:
         df_clean = df.dropna(subset=subset_cols)
@@ -141,13 +116,7 @@ def remove_null_values(df, subset_cols):
         raise
 
 def distribution_analysis(df, numeric_cols):
-    """
-    Sayısal sütunların dağılımını analiz eder.
 
-    Args:
-        df (pd.DataFrame): Veri seti.
-        numeric_cols (list): Sayısal sütun isimleri.
-    """
     logger.info("Performing distribution analysis for numeric columns")
     try:
         for col in numeric_cols:
@@ -161,7 +130,7 @@ def distribution_analysis(df, numeric_cols):
 
 
 def scale_features(df, numeric_cols, method="standard"):
-    """Sayısal özellikleri ölçeklendirir."""
+
     logger.info(f"Scaling features: {numeric_cols} using method: {method}")
     try:
         scaler = StandardScaler() if method == "standard" else MinMaxScaler()
@@ -190,7 +159,7 @@ def correlation_analysis(df, numeric_cols):
 
 
 def detect_outliers(df, numeric_cols, save=True):
-    """Aykırı değerleri tespit eder."""
+    """Detects outliers in numeric columns."""
     logger.info("Detecting outliers in numeric columns.")
     try:
         for col in numeric_cols:
@@ -206,7 +175,7 @@ def detect_outliers(df, numeric_cols, save=True):
 
 
 if __name__ == "__main__":
-    # Config dosyasını yükle
+    # Load config file
     config = load_config("../config/settings.yml")
     RAW_DIR = config["paths"]["raw_dir"]
     PROCESSED_DIR = config["paths"]["processed_dir"]
@@ -223,7 +192,7 @@ if __name__ == "__main__":
 
     file_path = "data/processed/epa_long_preprocessed.csv"
 
-    # Görselleştirme ve İşleme
+    # Visualization and Processing
     visualize_missing_values(df)
     df = fill_missing_values(df, method=config["parameters"].get("missing_value_method", "mean"))
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -231,12 +200,12 @@ if __name__ == "__main__":
     correlation_analysis(df, numeric_cols)
     detect_outliers(df, numeric_cols)
 
-    # Kaydetme (isteğe bağlı)
+    # Save (optional)
     df.to_csv(os.path.join(PROCESSED_DIR, "epa_preprocessed.csv"), index=False)
     logger.info("Preprocessed data saved successfully.")
     basic_info(df)
 
-    # Preprocessed veri kaydetme
+    # Save preprocessed data
     try:
         processed_file_path = os.path.join(config["paths"]["processed_dir"], "epa_preprocessed.csv")
         df.to_csv(processed_file_path, index=False)
