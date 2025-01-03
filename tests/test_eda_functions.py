@@ -1,4 +1,3 @@
-import pytest
 import pandas as pd
 from source.eda_exploration import basic_info
 
