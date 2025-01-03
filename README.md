@@ -1,8 +1,10 @@
-# <Geo_Sentiment_Climate> (Advanced Data Analytics Project)
+# _Geo_Sentiment_Climate_ (Advanced Data Analytics Project)
 
 ## 1. Overview
 
-Welcome to the **<Geo_Sentiment_Climate>** repository. This project aims to collect, clean, and analyze air quality data (CO, SO2, NO2, O3, PM2.5, etc.) from the EPA (Environmental Protection Agency) and other sources. We'll unify the datasets, handle missing values/outliers, and eventually perform advanced analytics/ML on them.
+Welcome to the **_Geo_Sentiment_Climate_** repository. This project aims to collect, clean, and analyze air quality
+data (CO, SO2, NO2, O3, PM2.5, etc.) from the EPA (Environmental Protection Agency) and other sources. We'll unify the
+datasets, handle missing values/outliers, and eventually perform advanced analytics/ML on them.
 
 ### Key Objectives:
 
@@ -13,110 +15,136 @@ Welcome to the **<Geo_Sentiment_Climate>** repository. This project aims to coll
    - Visualize time series, geospatial distributions, etc.
 3. **Feature Engineering & Modeling** (optional):
    - If time permits, build a forecast or regression model.
+   - Evaluate model performance, visualize results.
+4. **Evaluation & Visualization**:
+5. **Documentation & Presentation**:
 
 ## 2. Repository Structure
 
 ```text
 Geo_Sentiment_Climate/
   ├─ 00-config/
-my_advanced_project/
-  ├─ 00-config/
-  │   ├─ settings.yml
+  │   ├─ settings.yml # Data source path, parameters, etc.
   │   ├─ credentials_template.yml
-  │   └─ ...
+  │   
   ├─ 01-data/
   │   ├─ raw/
-  │   │   └─ # Ham veri CSV veya ZIP dosyaları (EPA CO, NO2, vb.)
+  │   │   └─ #  EPA CO, SO2, NO2, O3, PM2.5, etc.
   │   ├─ interim/
-  │   │   └─ # Ara işlenmiş veriler, geçici dosyalar
+  │   │   └─ # Intermediate processed data, temporary files
   │   └─ processed/
-  │       └─ # Temizlenmiş / birleştirilmiş veriler (epa_long.csv, epa_wide.csv vb.)
+  │   │   └─ # Cleaned/merged data (epa_long.csv, epa_wide.csv etc.)
+  │   ├─ archive/
+  │   │   └─ # Old data processing scripts or notes
+  │   └─ metadata/
+  │       └─ # Data dictionaries, schema information, etc.
   ├─ 02-notebooks/
   │   ├─ 01_data_check.ipynb
   │   ├─ 02_data_ingestion.ipynb
-  │   ├─ 03_eda_exploration.ipynb
-  │   ├─ 04_feature_engineering.ipynb
-  │   ├─ 05_modeling.ipynb
-  │   ├─ 06_evaluation_and_viz.ipynb
-  │   └─ ...
-  ├─ 03-src/
+  │   ├─ 03_data_preprocessing.ipynb
+  │   ├─ 04_missing_values.ipynb
+  │   ├─ 05_eda_exploration.ipynb
+  │   ├─ 06_feature_engineering.ipynb
+  │   ├─ 07_modeling.ipynb
+  │   └─ 08_evaluation_and_viz.ipynb
+  ├─ 03-source/
   │   ├─ data_check.py
   │   ├─ data_ingestion.py
   │   ├─ data_preprocessing.py
   │   ├─ utils/
   │   │   └─ config_loader.py
+  │       └─__init__.py
+  │       └─logger.py
+  │       └─common.py
+  │       └─future_utils.py
+  │       └─hash_utils.py
+  │       └─metadata_manager.py
   │   └─ __init__.py
   ├─ 04-logs/
   │   └─ eda_exploration.log
+  │   └─ data_ingestion.log
+  │   └─ data_preprocessing.log
+  │   └─ future_engineering.log
+  │   └─ data_check.log
+  │   └─ missing_values.log
   ├─ 05-docs/
   │   ├─ references/
-  │   │   └─ # Makale PDF'leri, link açıklamaları, vb.
+  │   │   └─ # Article PDFs, external link notes, etc.
   │   ├─ design_architecture.md
   │   └─ data_dictionary.md
+  ├─ 06-plots/
   ├─ .gitignore
   ├─ README.md
-  ├─ requirements.txt (veya environment.yml)
-  └─ LICENSE (opsiyonel)
+  ├─ requirements.txt
+  └─ LICENSE 
 
 ```
 
 ### Directory Summary
 
 -   **00-config/**: Project configuration (settings, credentials template).
-- Amaç: Proje ayar dosyalarını (YAML, JSON, vs.) burada tutmak.
-settings.yml: Örneğin “veri kaynak yolu, parametre listesi, vs.” gibi proje konfigürasyonunu tutabilirsin.
-credentials_template.yml: Gizli anahtar/token kullanacaksan, “template” dosyayı buraya koyarsın, gerçek kimlik bilgilerini .gitignore’a alırsın.
-Bu sayede projede hard-coded yollar veya parametreler yerine “config dosyası” yaklaşımı uygulayarak profesyonel bir izlenim bırakırsınız.
-01-data/raw/
-Tamamen ham veri (EPA CSV/ZIP’ler) alt klasörlerde durur.
-Örnek alt klasörler: epa-co-2023/, epa-so2-2022/, vb.
-.gitignore: Büyük dosyaları Git’e göndermemeniz önerilir.
-01-data/interim/
-Ara işlenmiş (ör. ilk rename, mini temizlik) verileri burada tutabilirsin.
-Bazı projelerde temp/ veya intermediate/ ismi veriliyor.
-01-data/processed/
-Nihai veya analiz-ready dosyalar buraya çıkıyor: epa_long.csv, epa_wide.csv, vb.
-Model için finalize edilmiş data veya “cleaned.csv” de burada olabilir.
-Bu şekilde rahat anlaşılıyor: “raw → interim → processed”.
 
--   **01-data/**:
+Purpose: Store project configuration files (YAML, JSON, etc.) here.
+settings.yml: For example, you can keep project configuration like "data source path, parameter list, etc." here.
+credentials_template.yml: If you are using secret keys/tokens, put the "template" file here and add the actual
+credentials to .gitignore.
+This way, you apply a "config file" approach instead of hard-coded paths or parameters, leaving a professional
+impression.
+
+- **01-data/**: This folder structure is a common practice in data projects.
     -   `raw/`: Original CSV files from EPA, etc.
     -   `interim/`: Temporary intermediate files.
     -   `processed/`: Cleaned, standardized final CSVs (e.g. epa_long.csv).
+    - `archive/`: Old data processing scripts or notes.
+    - `metadata/`: Data dictionaries, schema information, etc.
 -   **02-notebooks/**: Jupyter notebooks for data check, ingestion, EDA, modeling.
-- Notebooks’ları numaralandırıp isim vererek kronolojik bir yapı sağlarsınız:
+    - `01_data_check.ipynb`: CSV checks, shape/columns, mini-tests.
+    - `02_data_ingestion.ipynb`: All ingestion/consolidation rename logic (or you can call src/data_ingestion.py).
+    - `03_data_preprocessing.ipynb`: Null handling, outlier removal, etc.
+    - `03_eda_exploration.ipynb`: Visual plots, correlation, anomaly detection.
+    - `04_feature_engineering.ipynb`: Variable creation, unit conversion, demographic merge.
+    - `05_modeling.ipynb`: Time series/ML model, param tuning.
+    - `06_evaluation_and_viz.ipynb`: Result visualization, table, metrics.
+    - `07_missing_values.ipynb`: Missing value imputation strategies.
+      This way, notebooks go step-by-step, minimizing the "What did this file do?" question. You develop your code/cells
+      in the relevant notebooks.
+    - **03-source/**: Python scripts for ingestion, preprocessing, utilities, etc.
+    - `data_check.py`: "Glob .csv" + shape check + reporting.
+    - `data_ingestion.py`: rename_map, param dedect, concat + pivot.
+    - `data_preprocessing.py`: null filling, outlier fix, units conversion, etc.
+    - `eda_exploration.py`: Time series, geospatial, correlation, etc.
+    - `feature_engineering.py`: New feature creation, demographic merge.
+    - `missing_values.py`: Imputation strategies (mean, median, MICE).
+    - `utils/`: helper functions (common.py, logger.py, etc.)
+    - `__init__.py`: (Python package tradition, optional but professional.)
+    - `logger.py`: (If you use logging, configure it here.)
+    - `common.py`: Common functions (e.g. read/write CSV, timer, etc.)
+    - `future_utils.py`: Future utility functions (e.g. new feature creation).
+    - `hash_utils.py`: Hashing functions (e.g. for anonymization).
+    - `metadata_manager.py`: Data dictionary, schema info, etc.
+    - **04-logs/**: Any log files
+    - `eda_exploration.log`: Log file for EDA exploration.
+    - `data_ingestion.log`: Log file for data ingestion.
+    - `data_preprocessing.log`: Log file for data preprocessing.
+    - `future_engineering.log`: Log file for future engineering.
+    - `data_check.log`: Log file for data check.
+    - `missing_values.log`: Log file for missing value imputation.
+    - **05-docs/**: Additional documentation (architecture, data dictionary, references).
+    - `design_architecture.md`: "Project data flow, ingestion pipeline, DB, etc."
+    - `data_dictionary.md`: "Meaning of each column, param units, etc."
+    - `references/`: Article PDFs, external link notes, etc.
+    - **06-plots/**: EDA plots, model performance charts, etc.
+    - This folder is where the team or future project maintainers will find documentation.
+    - **.gitignore**: Ignore large data files, logs, etc.
+    - **requirements.txt**: Python libraries and versioning.
+    - **LICENSE**: If open-sourcing, specify the license.
 
-01_data_check.ipynb: CSV’lerin kontrolü, shape/columns, mini testler.
-02_data_ingestion.ipynb: Tüm ingestion/konsolidasyon rename mantığı (ya da src/data_ingestion.py’ye çağırabilirsiniz).
-03_eda_exploration.ipynb: Görsel grafikler, korelasyon, anomali tespiti.
-04_feature_engineering.ipynb: Değişken üretme, unit conversion, demografi merge.
-05_modeling.ipynb: Zaman serisi/ML modeli, param tuning.
-06_evaluation_and_viz.ipynb: Sonuç görselleştirme, tablo, metrikler.
-Böylece Notebook’lar adım adım gider, “Hangi dosya ne yapıyordu?” sorusu minimize olur. Siz ilgili Notebook’larda kendi kod/hücrelerinizi geliştirirsiniz.
--   **03-src/**: Python scripts for ingestion, preprocessing, utilities, etc.
-- Burada Python script dosyalarınız durur. Daha modüler yaklaşırsanız, Notebook’lar sadece “script fonksiyonlarını çağıran” alanlar olur:
-
-data_check.py: “Glob .csv” + shape kontrol + raporlama.
-data_ingestion.py: rename_map, param dedect, concat + pivot.
-data_preprocessing.py: null doldurma, outlier fix, units conversion vs.
-utils/: yard. fonksiyonlar (common.py, logger.py, vs.)
-__init__.py: (Python package geleneği, opsiyonel ama profesyonel durur).
-Şayet “Notebook” içinde her şeyi yapmak isterseniz de “03-src” minimal kalabilir. Ama gerçek projelerde genelde fonksiyonları script’e koyup Notebook’ta import edilerek çağırılır.
--   **04-logs/**: Any log files (if using logging).
-- Eğer “logging” kullanıyorsanız, log dosyaları burada toplanır (ör. info.log, error.log).
-.gitignore ekleyebilirsiniz, loglar anlık üretildiği için Git’te tutmak istemeyebilirsiniz.
-Gelişmiş projelerde logging modülü, verinin ingestion’ında bir pipeline log’ı tutar.
--   **05-docs/**: Additional documentation (architecture, data dictionary, references).
-- “design_architecture.md”: “Proje veri akışı, ingestion pipeline, DB vs.”
-“data_dictionary.md”: “Her kolonun anlamı, param birimleri vs.”
-references/: Makale PDF’ler, external link notları, vb.
-Bu klasör ekip veya ileride projeyi devralacak kişilerin dokümantasyon bulacağı yer.
+### Directory Summary
 
 .gitignore: data/raw/*, logs/*, vs. ignore.
 README.md:
-Projenin özet açıklaması, adım adım kurulum, “Nasıl çalıştırırım?”
-Gerekirse tablo:
-“Directory: 01-data, Purpose: ham/işlenmiş data.”
+
+“Directory: 01-data/raw/”
 requirements.txt (veya environment.yml)
 Python kütüphanelerinizin sürümlerini listeler.
 LICENSE: MIT, Apache 2.0, vs. (opsiyonel).
@@ -130,14 +158,14 @@ LICENSE: MIT, Apache 2.0, vs. (opsiyonel).
 1.  **Clone Repository**:
  
   ```bash
-    git clone https://github.com/yourusername/<PROJECT_NAME>.git
+    git clone https://github.com/dogaaydinn/<Geo_Sentiment_Climate>.git
    ```
     
 
 2. **Create Virtual Environment (Recommended)**:
 
   ```bash
-    cd <PROJECT_NAME>
+    cd <Geo_Sentiment_Climate>
     python -m venv venv
    ```
     ```bash
@@ -160,15 +188,72 @@ Place raw CSV files into 01-data/raw/ subfolders (like epa-co-2022/, epa-so2-202
 
 -   Open `02-notebooks/01_data_check.ipynb` to see shape/columns checks.
 -   Next, run `02_data_ingestion.ipynb` to unify & generate final CSV (`epa_long.csv`).
+- Clean data in `03_data_preprocessing.ipynb`.
 -   Explore data in `03_eda_exploration.ipynb`.
+- Create new features in `04_feature_engineering.ipynb`.
+- Impute missing values in `07_missing_values.ipynb`.
+- Run `05_modeling.ipynb` for time series/ML model building.
+- Evaluate results in `08_evaluation_and_viz.ipynb`.
+- Run notebooks in order, or as needed.
 
 **Python Scripts**:
 
 -   `03-src/data_ingestion.py`: Programmatically ingest & merge data.
 -   `03-src/data_preprocessing.py`: Additional cleaning (null handling, outlier removal).
+- `03-src/eda_exploration.py`: Advanced EDA (time series, geospatial, correlation).
+- `03-src/feature_engineering.py`: Create new features, merge demographic data.
+- `03-src/missing_values.py`: Impute missing values (mean, median, MICE).
+- `03-src/utils/common.py`: Common functions (read/write CSV, timer, etc.).
+- `03-src/utils/logger.py`: Configure logging settings.
+- `03-src/utils/future_utils.py`: Future utility functions.
+- `03-src/utils/hash_utils.py`: Hashing functions.
+- `03-src/utils/metadata_manager.py`: Data dictionary, schema info.
+- Run scripts from the terminal or an IDE.
 
 5\. Additional Info
 -------------------
 
--   **docs/** folder holds design docs, references, data dictionary, etc.
--   **logs/** folder can store debug logs, if you enable logging in scripts.
+- **source/** folder contains Python scripts for data ingestion, preprocessing, etc.
+- **.gitignore** excludes large files/logs from version control.
+- **archives/** folder can store old scripts or notebooks.
+- **tests/** folder can hold unit tests for your scripts.
+- **interim/** folder can store temporary files (not pushed to Git).
+- **processed/** folder can store cleaned/merged CSVs (pushed to Git).
+- **metadata/** folder can store data dictionaries, schema info, etc.
+- **raw/** folder can store original CSVs (not pushed to Git).
+- **notebooks/** folder can store Jupyter notebooks for each step.
+- **plots/** folder can store EDA plots, model performance charts.
+- **requirements.txt** lists Python libraries for reproducibility.
+- **docs/** folder holds design docs, references, data dictionary, etc.
+- **logs/** folder can store debug logs, if you enable logging in scripts.
+- **config/** folder can hold YAML/JSON files for settings, credentials, etc.
+
+6\. Contribution
+----------------
+
+- **Fork** the repository.
+- **Clone** the forked repository.
+- **Create** a new branch.
+- **Make** your changes.
+- **Commit** your changes.
+
+7\. License
+----------------
+
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+
+8\. Contact
+----------------
+
+Maintainer: Doğa Aydın
+
+Email: dogaa882@gmail.com
+
+LinkedIn:[linkedin.com/in/dogaaydin](https://www.linkedin.com/in/dogaaydin/)
+
+GitHub: [github.com/dogaa882](https://github.com/dogaaydinn)
+
+Dev.to: [dev.to/dogaa882](https://dev.to/dogaa882)
+
+Medium: [https://medium.com/@dogaa882](https://medium.com/@dogaa882)
+
