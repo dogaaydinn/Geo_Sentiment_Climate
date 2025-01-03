@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from src.feature_engineering import scale_features, create_interaction_terms
+from source.feature_engineering import scale_features, create_interaction_terms
 
 def test_scale_features():
     df = pd.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
