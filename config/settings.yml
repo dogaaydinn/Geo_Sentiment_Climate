@@ -1,13 +1,16 @@
-# settings.yml
-
 # Global project config
 project_name: "Geo_Sentiment_Climate"
 
 # Data ingestion config
-data:
+paths:
   raw_dir: "../data/raw/"
   interim_dir: "../data/interim/"
   processed_dir: "../data/processed/"
+  metadata_dir: "../data/metadata/"
+  plots_dir: "../plots/"
+  logs_dir: "../logs/"
+  archive_dir: "../data/archive/"
+
 
 # Parameter rename map example
 rename_map_common:
@@ -25,47 +28,51 @@ rename_map_param:
   no2: "Daily Max 1-hour NO2 Concentration"
   pm25: "Daily Mean PM2.5 Concentration"
 
-# config path
-paths:
-  raw_dir: "../source/data/raw"
-  processed_dir: "../source/data/processed"
-  plots_dir: "../plots"
-  logs_dir: "../logs"
-
 # Required columns for data check
-required_columns:
-  - "Date"  # Zaman bilgisi (tarih)
-  - "Daily Max 1-hour SO2 Concentration"  # Temel analiz metriği
-  - "Units"  # Metriğin birimi (ppm, µg/m³ vb.)
-  - "Site Latitude"  # Coğrafi konum bilgisi
-  - "Site Longitude"  # Coğrafi konum bilgisi
-  - "AQS Parameter Code"  # Parametre tanımı için kod
-  - "State"  # Eyalet bilgisi
-  - "County"  # İlçe bilgisi
-  - "Daily AQI Value"  # AQI (Hava Kalite İndeksi) analizi
+data_check:
+  required_columns:
+    - Date
+    - Source
+    - Site ID
+    - POC
+    - Daily Max 1-hour SO2 Concentration
+    - Units
+    - Daily AQI Value
+    - Local Site Name
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Code
+    - AQS Parameter Description
+    - Method Code
+    - CBSA Code
+    - CBSA Name
+    - State FIPS Code
+    - State
+    - County FIPS Code
+    - County
+    - Site Latitude
+    - Site Longitude
+  optional_columns:
+    - "Source"
+    - "Site ID"
+    - "POC"
+    - "Local Site Name"
+    - "Daily Obs Count"
+    - "Percent Complete"
+    - "Method Code"
+    - "CBSA Code"
+    - "CBSA Name"
+    - "State FIPS Code"
+    - "County FIPS Code"
 
-
-optional_columns:
-  - "Source"
-  - "Site ID"
-  - "POC"
-  - "Local Site Name"
-  - "Daily Obs Count"
-  - "Percent Complete"
-  - "Method Code"
-  - "CBSA Code"
-  - "CBSA Name"
-  - "State FIPS Code"
-  - "County FIPS Code"
-
-  parameters:
-    missing_value_method: "mean"
-    scaling_method: "standard"
-    max_rows: 5000
+parameters:
+  missing_value_method: "mean"
+  scaling_method: "standard"
+  max_rows: 5000
 
 eda:
-  numeric_threshold: 0.75  # Örneğin, bir korelasyon eşiği belirlemek için
-  max_categories: 20       # Kategorik sütunlar için analiz limiti
+  numeric_threshold: 0.75
+  max_categories: 20
 
 logging:
   log_file: "../logs/project.log"
