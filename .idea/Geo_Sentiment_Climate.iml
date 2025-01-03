@@ -3,6 +3,20 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/data/archive" />
+      <excludeFolder url="file://$MODULE_DIR$/data/interim" />
+      <excludeFolder url="file://$MODULE_DIR$/data/metadata" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-co-2022" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-co-2023" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-no2-2022" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-no2-2023" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-o3-2022" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-o3-2023" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-pm2.5-2022" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-pm2.5-2023" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-so2-2022" />
+      <excludeFolder url="file://$MODULE_DIR$/data/raw/epa-so2-2023" />
+      <excludeFolder url="file://$MODULE_DIR$/sklearn-env" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.9 (Geo_Sentiment_Climate)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
