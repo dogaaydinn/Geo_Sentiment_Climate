@@ -9,5 +9,6 @@ matplotlib
 seaborn
 missingno
 scikit-learn
+pyyaml
 ...
 
