@@ -1,5 +1,6 @@
 import glob
 import os
+import sys
 from datetime import datetime
 
 import pandas as pd
@@ -9,11 +10,24 @@ from source.utils.logger import setup_logger
 
 # Maximum number of rows to read (to speed up processing for large files)
 MAX_ROWS_READ = 5000
+# Load config
+config_path = os.path.join(os.path.abspath("../config"), "settings.yml")
+config = load_config(config_path)
 
+# Import local script specific to the project:
+sys.path.append(os.path.abspath("../source"))
+
+# Check if all required config keys are present
+required_keys = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
+for key in required_keys:
+    if key not in config["paths"]:
+        raise KeyError(f"Key 'paths.{key}' not found in config file.")
+
+RAW_DIR = os.path.abspath(config["paths"]["raw_dir"])
 # Logger setup (to write logs to a file)
 logger = setup_logger(
     name="data_check",
-    log_file="../logs/data_check.log",  # Can be changed as needed
+    log_file=os.path.join(config["paths"]["logs_dir"], "data_check.log"),
     log_level="INFO"
 )
 
@@ -21,11 +35,15 @@ def validate_columns(df, required_columns):
     missing_cols = [col for col in required_columns if col not in df.columns]
     return len(missing_cols) == 0, missing_cols
 
-def check_raw_data() -> None:
+
+def check_raw_data(raw_dir=RAW_DIR) -> None:
     logger.info("=== Starting data check... ===")
 
-    # 1) Load config
-    config = load_config()
+    # write a code for how many csv files are in the raw directory and its subdirectories
+
+    # Load config
+    config_path = "../config/settings.yml"
+    config = load_config(config_path)
     if config is None:
         logger.error("Failed to load config file or returned None, terminating process.")
         return
@@ -37,13 +55,19 @@ def check_raw_data() -> None:
     else:
         required_columns = config["data_check"]["required_columns"]
 
-    # paths -> raw_dir, processed_dir
-    raw_dir = config["paths"].get("raw_dir", "../data/raw")
+    # paths -> processed_dir
     processed_dir = config["paths"].get("processed_dir", "../data/processed")
 
-    # 2) Find all .csv files (including subfolders)
+    # Log the raw directory being searched
+    logger.info(f"Searching for CSV files in directory: {raw_dir}")
+
+    # Find all .csv files (including subfolders)
     csv_files = glob.glob(os.path.join(raw_dir, "**/*.csv"), recursive=True)
     logger.info(f"Number of CSV files found: {len(csv_files)} (directory: {raw_dir})")
+
+    # Log the paths of the found CSV files
+    for csv_file in csv_files:
+        logger.info(f"Found CSV file: {csv_file}")
 
     if not csv_files:
         logger.warning("No CSV files found! check_raw_data is terminating.")
@@ -52,7 +76,7 @@ def check_raw_data() -> None:
     # Collect report rows in a list
     report_rows = []
 
-    # 3) Check each file
+    # Check each file
     for idx, csv_path in enumerate(csv_files, start=1):
         row_info = {
             "file_path": csv_path,
@@ -107,7 +131,7 @@ def check_raw_data() -> None:
 
         report_rows.append(row_info)
 
-    # 4) Report DataFrame
+    # Report DataFrame
     df_report = pd.DataFrame(report_rows)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_name = f"data_check_report_{timestamp}.csv"
@@ -124,11 +148,7 @@ def check_raw_data() -> None:
 
     logger.info("=== Data check process completed. ===")
 
-def main():
-    try:
-        check_raw_data()  # default config_path "../config/settings.yml"
-    except Exception as e:
-        logger.critical(f"[CRITICAL] Program terminated with a critical error: {e}")
 
+# Run the data check process if this script is run directly
 if __name__ == "__main__":
-    main()
+    check_raw_data()
