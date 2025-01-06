@@ -4,13 +4,17 @@ import matplotlib.pyplot as plt
 import missingno as msno
 import pandas as pd
 import seaborn as sns
+from source.utils.path_utils import add_source_to_sys_path
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_data(file_path):
+# Add source to sys.path
+add_source_to_sys_path()
 
+
+def load_data(file_path):
     logger.info(f"Loading data from {file_path}")
     try:
         data = pd.read_csv(file_path)
@@ -19,6 +23,7 @@ def load_data(file_path):
     except Exception as e:
         logger.error(f"Error loading data: {e}")
         raise
+
 
 def basic_info(df):
     info = {
@@ -29,16 +34,16 @@ def basic_info(df):
     }
     return info
 
-def missing_values(df):
 
+def missing_values(df):
     logger.info("Analyzing missing values in the dataset")
     print("[INFO] Missing Value Percentages:")
     print(df.isnull().mean() * 100)
     msno.matrix(df)
     plt.show()
 
-def distribution_analysis(df, numeric_cols):
 
+def distribution_analysis(df, numeric_cols):
     logger.info("Performing distribution analysis for numeric columns")
     for col in numeric_cols:
         plt.figure(figsize=(8, 4))
@@ -46,8 +51,8 @@ def distribution_analysis(df, numeric_cols):
         plt.title(f"Distribution of {col}")
         plt.show()
 
-def correlation_analysis(df, numeric_cols):
 
+def correlation_analysis(df, numeric_cols):
     logger.info("Creating correlation matrix for numeric columns")
     corr_matrix = df[numeric_cols].corr()
     plt.figure(figsize=(10, 8))
@@ -55,8 +60,8 @@ def correlation_analysis(df, numeric_cols):
     plt.title("Correlation Matrix")
     plt.show()
 
-def detect_outliers(df, numeric_cols):
 
+def detect_outliers(df, numeric_cols):
     logger.info("Detecting outliers in numeric columns")
     for col in numeric_cols:
         plt.figure(figsize=(8, 4))

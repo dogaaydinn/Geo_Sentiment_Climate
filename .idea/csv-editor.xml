@@ -24,7 +24,35 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/data/processed/data_check_report_20250104_171303.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="/data/processed/epa_combined_raw_20250103_021355.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/data/processed/processed_epa_co_arkansas_2022.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/data/processed/processed_epa_so2_oklahoma_2022.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="/data/raw/epa-pm2.5-2022/epa_pm2.5_missouri_2022.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />

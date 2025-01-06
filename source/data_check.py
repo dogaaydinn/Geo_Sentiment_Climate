@@ -2,6 +2,7 @@ import glob
 import os
 import sys
 from datetime import datetime
+from source.utils.path_utils import add_source_to_sys_path
 
 import pandas as pd
 
@@ -14,8 +15,8 @@ MAX_ROWS_READ = 5000
 config_path = os.path.join(os.path.abspath("../config"), "settings.yml")
 config = load_config(config_path)
 
-# Import local script specific to the project:
-sys.path.append(os.path.abspath("../source"))
+# Add source to sys.path
+add_source_to_sys_path()
 
 # Check if all required config keys are present
 required_keys = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
@@ -30,6 +31,7 @@ logger = setup_logger(
     log_file=os.path.join(config["paths"]["logs_dir"], "data_check.log"),
     log_level="INFO"
 )
+
 
 def validate_columns(df, required_columns):
     missing_cols = [col for col in required_columns if col not in df.columns]

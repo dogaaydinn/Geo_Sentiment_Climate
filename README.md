@@ -8,14 +8,14 @@ datasets, handle missing values/outliers, and eventually perform advanced analyt
 
 ### Key Objectives:
 
-1. **Data Ingestion & Preprocessing**: 
-   - Gather raw CSV files from multiple states/parameters.
-   - Standardize column names, unify param (co, so2, no2, pm25, o3).
+1. **Data Ingestion & Preprocessing**:
+    - Gather raw CSV files from multiple states/parameters.
+    - Standardize column names, unify param (co, so2, no2, pm25, o3).
 2. **Exploratory Data Analysis**:
-   - Visualize time series, geospatial distributions, etc.
+    - Visualize time series, geospatial distributions, etc.
 3. **Feature Engineering & Modeling** (optional):
-   - If time permits, build a forecast or regression model.
-   - Evaluate model performance, visualize results.
+    - If time permits, build a forecast or regression model.
+    - Evaluate model performance, visualize results.
 4. **Evaluation & Visualization**:
 5. **Documentation & Presentation**:
 
@@ -82,7 +82,7 @@ Geo_Sentiment_Climate/
 
 ### Directory Summary
 
--   **00-config/**: Project configuration (settings, credentials template).
+- **00-config/**: Project configuration (settings, credentials template).
 
 Purpose: Store project configuration files (YAML, JSON, etc.) here.
 settings.yml: For example, you can keep project configuration like "data source path, parameter list, etc." here.
@@ -92,12 +92,12 @@ This way, you apply a "config file" approach instead of hard-coded paths or para
 impression.
 
 - **01-data/**: This folder structure is a common practice in data projects.
-    -   `raw/`: Original CSV files from EPA, etc.
-    -   `interim/`: Temporary intermediate files.
-    -   `processed/`: Cleaned, standardized final CSVs (e.g. epa_long.csv).
+    - `raw/`: Original CSV files from EPA, etc.
+    - `interim/`: Temporary intermediate files.
+    - `processed/`: Cleaned, standardized final CSVs (e.g. epa_long.csv).
     - `archive/`: Old data processing scripts or notes.
     - `metadata/`: Data dictionaries, schema information, etc.
--   **02-notebooks/**: Jupyter notebooks for data check, ingestion, EDA, modeling.
+- **02-notebooks/**: Jupyter notebooks for data check, ingestion, EDA, modeling.
     - `01_data_check.ipynb`: CSV checks, shape/columns, mini-tests.
     - `02_data_ingestion.ipynb`: All ingestion/consolidation rename logic (or you can call src/data_ingestion.py).
     - `03_data_preprocessing.ipynb`: Null handling, outlier removal, etc.
@@ -148,19 +148,19 @@ README.md:
 requirements.txt (veya environment.yml)
 Python kütüphanelerinizin sürümlerini listeler.
 LICENSE: MIT, Apache 2.0, vs. (opsiyonel).
--   **.gitignore**: Ignore large data files, logs, etc.
--   **requirements.txt**: Python libraries and versioning.
--   **LICENSE**: If open-sourcing, specify license.
+
+- **.gitignore**: Ignore large data files, logs, etc.
+- **requirements.txt**: Python libraries and versioning.
+- **LICENSE**: If open-sourcing, specify license.
 
 3\. Setup Instructions
 ----------------------
 
-1.  **Clone Repository**:
- 
+1. **Clone Repository**:
+
   ```bash
     git clone https://github.com/dogaaydinn/<Geo_Sentiment_Climate>.git
    ```
-    
 
 2. **Create Virtual Environment (Recommended)**:
 
@@ -168,6 +168,7 @@ LICENSE: MIT, Apache 2.0, vs. (opsiyonel).
     cd <Geo_Sentiment_Climate>
     python -m venv venv
    ```
+
     ```bash
     # Activate venv
     # Mac/Linux
@@ -178,18 +179,19 @@ LICENSE: MIT, Apache 2.0, vs. (opsiyonel).
   ```bash
     pip install -r requirements.txt
 ```
+
 4. **Add EPA Data**:
-Place raw CSV files into 01-data/raw/ subfolders (like epa-co-2022/, epa-so2-2023/, etc.).
+   Place raw CSV files into 01-data/raw/ subfolders (like epa-co-2022/, epa-so2-2023/, etc.).
 
 4\. Usage
 ---------
 
 **Jupyter Notebooks**:
 
--   Open `02-notebooks/01_data_check.ipynb` to see shape/columns checks.
--   Next, run `02_data_ingestion.ipynb` to unify & generate final CSV (`epa_long.csv`).
+- Open `02-notebooks/01_data_check.ipynb` to see shape/columns checks.
+- Next, run `02_data_ingestion.ipynb` to unify & generate final CSV (`epa_long.csv`).
 - Clean data in `03_data_preprocessing.ipynb`.
--   Explore data in `03_eda_exploration.ipynb`.
+- Explore data in `03_eda_exploration.ipynb`.
 - Create new features in `04_feature_engineering.ipynb`.
 - Impute missing values in `07_missing_values.ipynb`.
 - Run `05_modeling.ipynb` for time series/ML model building.
@@ -198,8 +200,8 @@ Place raw CSV files into 01-data/raw/ subfolders (like epa-co-2022/, epa-so2-202
 
 **Python Scripts**:
 
--   `03-src/data_ingestion.py`: Programmatically ingest & merge data.
--   `03-src/data_preprocessing.py`: Additional cleaning (null handling, outlier removal).
+- `03-src/data_ingestion.py`: Programmatically ingest & merge data.
+- `03-src/data_preprocessing.py`: Additional cleaning (null handling, outlier removal).
 - `03-src/eda_exploration.py`: Advanced EDA (time series, geospatial, correlation).
 - `03-src/feature_engineering.py`: Create new features, merge demographic data.
 - `03-src/missing_values.py`: Impute missing values (mean, median, MICE).

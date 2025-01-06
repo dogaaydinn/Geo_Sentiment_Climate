@@ -1,18 +1,16 @@
 import glob
 import os
 import shutil
-import sys
-from datetime import datetime
-
 import pandas as pd
-
+from datetime import datetime
+from source.utils.path_utils import add_source_to_sys_path
 from source.utils.config_loader import load_config
 from source.utils.hash_utils import compute_md5
 from source.utils.logger import setup_logger
 from source.utils.metadata_manager import load_processed_files, is_file_processed, mark_file_as_processed
 
-# Import local script specific to the project:
-sys.path.append(os.path.abspath("../source"))
+# Add source to sys.path
+add_source_to_sys_path()
 
 # Load config
 config_path = os.path.join(os.path.abspath("../config"), "settings.yml")
