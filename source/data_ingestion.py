@@ -1,13 +1,15 @@
 import glob
 import os
 import shutil
-import pandas as pd
 from datetime import datetime
-from source.utils.path_utils import add_source_to_sys_path
+
+import pandas as pd
+
 from source.utils.config_loader import load_config
 from source.utils.hash_utils import compute_md5
 from source.utils.logger import setup_logger
 from source.utils.metadata_manager import load_processed_files, is_file_processed, mark_file_as_processed
+from source.utils.path_utils import add_source_to_sys_path
 
 # Add source to sys.path
 add_source_to_sys_path()
@@ -28,7 +30,7 @@ PROCESSED_DIR = os.path.abspath(config["paths"]["processed_dir"])
 ARCHIVE_DIR = os.path.abspath(config["paths"]["archive_dir"])
 METADATA_DIR = os.path.abspath(config["paths"]["metadata_dir"])
 METADATA_PATH = os.path.abspath(os.path.join(METADATA_DIR, "processed_files.json"))
-MAX_ROWS_READ = config.get("ingestion", {}).get("max_rows_read", 5000)
+MAX_ROWS_READ = config.get("ingestion", {}).get("max_rows_read", None)  # None means no limit
 
 # Logger Setup
 logger = setup_logger(
@@ -57,13 +59,14 @@ def ingest_data(raw_dir=RAW_DIR):
         logger.warning("No CSV files found. Terminating ingestion process.")
         return
 
+    # 3. Initialize combined DataFrame
     combined_df = pd.DataFrame()
 
     for csv_path in csv_files:
         file_name = os.path.basename(csv_path)
         logger.info(f"Processing: {file_name}")
 
-        # 3. Compute file hash
+        # 4. Compute file hash
         try:
             file_hash = compute_md5(csv_path)
             logger.info(f"File hash: {file_hash}")
@@ -71,14 +74,14 @@ def ingest_data(raw_dir=RAW_DIR):
             logger.error(f"Failed to compute hash for {file_name}: {e}")
             continue
 
-        # 4. Check if file has been processed before
+        # 5. Check if file has been processed before
         if is_file_processed(file_hash, metadata):
             logger.info(f"{file_name} has already been processed. Skipping.")
             continue
 
-        # 5. Read CSV into DataFrame (limited number of rows)
+        # 6. Read CSV into DataFrame (optional row limit)
         try:
-            df = pd.read_csv(csv_path, nrows=MAX_ROWS_READ)
+            df = pd.read_csv(csv_path, nrows=MAX_ROWS_READ) if MAX_ROWS_READ else pd.read_csv(csv_path)
             logger.debug(f"Number of rows read from {file_name}: {len(df)}")
             if df.empty:
                 logger.warning(f"{file_name} is an empty file. Not processing.")
@@ -89,15 +92,28 @@ def ingest_data(raw_dir=RAW_DIR):
             mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
             continue
 
-        # 6. Perform deduplication
+        # 7. Perform deduplication
         initial_shape = df.shape
         df.drop_duplicates(inplace=True)
         final_shape = df.shape
         logger.info(f"Deduplication: {initial_shape} -> {final_shape}")
 
-        combined_df = pd.concat([combined_df, df], ignore_index=True)
+        # 8. Validate and Align Columns
+        required_columns = config["data_check"].get("required_columns", [])
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            logger.warning(
+                f"{file_name} is missing columns: {missing_columns}. These columns will be added with NaN values.")
+            for col in missing_columns:
+                df[col] = pd.NA
+        # Ensure columns are in the same order
+        df = df[required_columns]
 
-        # 7. Save processed data to interim
+        # 9. Append to combined DataFrame
+        combined_df = pd.concat([combined_df, df], ignore_index=True)
+        logger.info(f"Appended data from {file_name} to combined DataFrame.")
+
+        # 10. Save processed data to interim
         try:
             os.makedirs(INTERIM_DIR, exist_ok=True)
             interim_file = os.path.join(INTERIM_DIR, f"interim_{file_name}")
@@ -108,7 +124,7 @@ def ingest_data(raw_dir=RAW_DIR):
             mark_file_as_processed(file_name, file_hash, final_shape[0], metadata, METADATA_PATH)
             continue
 
-        # 8. Move processed data to processed directory
+        # 11. Move processed data to processed directory
         try:
             os.makedirs(PROCESSED_DIR, exist_ok=True)
             processed_file = os.path.join(PROCESSED_DIR, f"processed_{file_name}")
@@ -119,20 +135,20 @@ def ingest_data(raw_dir=RAW_DIR):
             mark_file_as_processed(file_name, file_hash, final_shape[0], metadata, METADATA_PATH)
             continue
 
-        # 9. Move file to archive
+        # 12. Copy file to archive (ham verileri silmeden)
         try:
             os.makedirs(ARCHIVE_DIR, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             archive_file_name = f"{timestamp}_{file_name}"
             archive_path = os.path.join(ARCHIVE_DIR, archive_file_name)
-            shutil.move(csv_path, archive_path)
-            logger.info(f"File moved to archive: {archive_path}")
+            shutil.copy(csv_path, archive_path)  # shutil.move yerine shutil.copy kullanıldı
+            logger.info(f"File copied to archive: {archive_path}")
         except Exception as e:
-            logger.error(f"Error moving file to archive: {e}")
+            logger.error(f"Error copying file to archive: {e}")
             # Continue processing
             pass
 
-        # 10. Update metadata
+        # 13. Update metadata
         rows_count = final_shape[0]
         try:
             mark_file_as_processed(file_name, file_hash, rows_count, metadata, METADATA_PATH)
@@ -140,13 +156,19 @@ def ingest_data(raw_dir=RAW_DIR):
         except Exception as e:
             logger.error(f"Error updating metadata: {e}")
 
-    logger.info(f"Combined DataFrame size: {combined_df.shape}")
+    logger.info(f"Combined DataFrame size before deduplication: {combined_df.shape}")
 
-    # Save the combined DataFrame to a CSV file
-    output_file = os.path.join(PROCESSED_DIR, "combined_data.csv")
+    # 14. Final Deduplication on Combined DataFrame
+    combined_initial_shape = combined_df.shape
+    combined_df.drop_duplicates(inplace=True)
+    combined_final_shape = combined_df.shape
+    logger.info(f"Combined DataFrame deduplication: {combined_initial_shape} -> {combined_final_shape}")
+
+    # 15. Save the combined DataFrame to a CSV file as 'epa_long_preprocessed.csv'
+    output_file = os.path.join(PROCESSED_DIR, "epa_long_preprocessed.csv")
     try:
         combined_df.to_csv(output_file, index=False)
-        logger.info(f"Combined DataFrame saved: {output_file}")
+        logger.info(f"Combined DataFrame saved as 'epa_long_preprocessed.csv': {output_file}")
     except Exception as e:
         logger.error(f"Failed to save combined DataFrame: {e}")
 
