@@ -1,13 +1,12 @@
 import glob
 import os
-import sys
 from datetime import datetime
-from source.utils.path_utils import add_source_to_sys_path
 
 import pandas as pd
 
 from source.utils.config_loader import load_config
 from source.utils.logger import setup_logger
+from source.utils.path_utils import add_source_to_sys_path
 
 # Maximum number of rows to read (to speed up processing for large files)
 MAX_ROWS_READ = 5000
