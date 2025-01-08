@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import missingno as msno
 import pandas as pd
 import seaborn as sns
+
 from source.utils.path_utils import add_source_to_sys_path
 
 # Configure logger
