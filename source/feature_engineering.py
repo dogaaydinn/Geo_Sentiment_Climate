@@ -1,7 +1,7 @@
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-from utils.logger import setup_logger
 from source.utils.path_utils import add_source_to_sys_path
+from utils.logger import setup_logger
 
 logger = setup_logger(name="feature_engineering", log_file="../logs/feature_engineering.log", log_level="INFO")
 
