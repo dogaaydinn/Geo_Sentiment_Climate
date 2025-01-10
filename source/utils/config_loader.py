@@ -1,17 +1,19 @@
-import logging
+# source/utils/config_loader.py
 
 import yaml
-
-# Logger setup
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
+import logging
 
 def load_config(config_path):
     try:
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
-        return config
+            if config is None:
+                raise ValueError("Configuration file is empty")
+            return config
+    except FileNotFoundError:
+        logging.error(f"Configuration file not found: {config_path}")
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing configuration file: {e}")
     except Exception as e:
-        print(f"Error loading config file: {e}")
-        return None
+        logging.error(f"Unexpected error loading configuration: {e}")
+    return None
