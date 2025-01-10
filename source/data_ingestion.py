@@ -1,178 +1,302 @@
-import glob
-import os
 import shutil
 from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Any
 
 import pandas as pd
 
 from source.utils.config_loader import load_config
 from source.utils.hash_utils import compute_md5
 from source.utils.logger import setup_logger
-from source.utils.metadata_manager import load_processed_files, is_file_processed, mark_file_as_processed
-from source.utils.path_utils import add_source_to_sys_path
+from source.utils.metadata_manager import (
+    load_processed_files,
+    is_file_processed,
+    mark_file_as_processed
+)
+
+
+def add_source_to_sys_path():
+    """
+    Adds the 'source' directory to the system path.
+    """
+    import sys
+    source_path = Path(__file__).resolve().parent
+    if str(source_path) not in sys.path:
+        sys.path.append(str(source_path))
+
 
 # Add source to sys.path
 add_source_to_sys_path()
 
 # Load config
-config_path = os.path.join(os.path.abspath("../config"), "settings.yml")
-config = load_config(config_path)
 
-# Check if all required config keys are present
-required_keys = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
-for key in required_keys:
-    if key not in config["paths"]:
-        raise KeyError(f"Key 'paths.{key}' not found in config file.")
+CONFIG_PATH = Path("../config/settings.yml").resolve()
+config = load_config(CONFIG_PATH)
 
-RAW_DIR = os.path.abspath(config["paths"]["raw_dir"])
-INTERIM_DIR = os.path.abspath(config["paths"].get("interim_dir", "data/interim"))
-PROCESSED_DIR = os.path.abspath(config["paths"]["processed_dir"])
-ARCHIVE_DIR = os.path.abspath(config["paths"]["archive_dir"])
-METADATA_DIR = os.path.abspath(config["paths"]["metadata_dir"])
-METADATA_PATH = os.path.abspath(os.path.join(METADATA_DIR, "processed_files.json"))
+# Validate required config keys
+REQUIRED_KEYS = [
+    "raw_dir", "interim_dir", "processed_dir",
+    "archive_dir", "metadata_dir", "logs_dir"
+]
+missing_keys = [key for key in REQUIRED_KEYS if key not in config.get("paths", {})]
+if missing_keys:
+    raise KeyError(f"Missing required config keys: {missing_keys}")
+
+# Define directories using pathlib
+RAW_DIR = Path(config["paths"]["raw_dir"]).resolve()
+INTERIM_DIR = Path(config["paths"].get("interim_dir", "01-data/interim")).resolve()
+PROCESSED_DIR = Path(config["paths"]["processed_dir"]).resolve()
+ARCHIVE_DIR = Path(config["paths"]["archive_dir"]).resolve()
+METADATA_DIR = Path(config["paths"]["metadata_dir"]).resolve()
+METADATA_PATH = METADATA_DIR / "processed_files.json"
 MAX_ROWS_READ = config.get("ingestion", {}).get("max_rows_read", None)  # None means no limit
 
-# Logger Setup
+# Setup logger
 logger = setup_logger(
-    name="data_ingestion_advanced",
-    log_file=os.path.join(config["paths"]["logs_dir"], "data_ingestion_advanced.log"),
-    log_level="INFO"
+    name="data_ingestion",
+    log_file=Path(config["paths"]["logs_dir"]) / "data_ingestion.log",
+    log_level=config.get("logging", {}).get("level", "INFO").upper()
 )
 
 
-def ingest_data(raw_dir=RAW_DIR):
-    logger.info("Starting data ingestion process.")
+def find_csv_files(directory: Path) -> List[Path]:
+    """
+    Finds all CSV files within a directory and its subdirectories.
 
-    # 1. Load metadata
+    Args:
+        directory (Path): The directory to search.
+
+    Returns:
+        List[Path]: List of CSV file paths.
+    """
+    csv_files = list(directory.rglob("*.csv"))
+    logger.debug(f"Found {len(csv_files)} CSV files in {directory}")
+    return csv_files
+
+
+def load_metadata(metadata_path: Path) -> Dict[str, Any]:
+    """
+    Loads metadata from a JSON file.
+
+    Args:
+        metadata_path (Path): Path to the metadata JSON file.
+
+    Returns:
+        Dict[str, Any]: Metadata dictionary.
+    """
+    return load_processed_files(metadata_path)
+
+
+def save_metadata(metadata: Dict[str, Any], metadata_path: Path) -> None:
+    """
+    Saves the updated metadata to the JSON file.
+
+    Args:
+        metadata (Dict[str, Any]): Metadata dictionary.
+        metadata_path (Path): Path to the metadata JSON file.
+    """
     try:
-        metadata = load_processed_files(METADATA_PATH)
-        logger.debug(f"Loaded metadata: {metadata}")
+        mark_file_as_processed(
+            file_name="metadata_update",
+            file_hash="N/A",
+            rows_count=0,
+            metadata=metadata,
+            metadata_path=metadata_path
+        )
+        logger.debug(f"Metadata saved to {metadata_path}.")
     except Exception as e:
-        logger.error(f"Error loading metadata: {e}")
-        return
+        logger.error(f"Error saving metadata to {metadata_path}: {e}")
 
-    # 2. Find all CSV files
-    csv_files = glob.glob(os.path.join(raw_dir, "**/*.csv"), recursive=True)
-    logger.info(f"Number of CSV files found: {len(csv_files)}")
+
+
+def save_metadata(metadata: Dict[str, Any], metadata_path: Path) -> None:
+    """
+    Saves the updated metadata to the JSON file.
+
+    Args:
+        metadata (Dict[str, Any]): Metadata dictionary.
+        metadata_path (Path): Path to the metadata JSON file.
+    """
+    try:
+        mark_file_as_processed(metadata=metadata, metadata_path=metadata_path)
+        logger.debug(f"Metadata saved to {metadata_path}.")
+    except Exception as e:
+        logger.error(f"Error saving metadata to {metadata_path}: {e}")
+
+
+def process_file(
+    csv_path: Path,
+    required_columns: List[str],
+    metadata: Dict[str, Any],
+    max_rows_read: int = None
+) -> pd.DataFrame:
+    """
+    Processes a single CSV file: deduplication, column validation, etc.
+
+    Args:
+        csv_path (Path): Path to the CSV file.
+        required_columns (List[str]): List of required columns.
+        metadata (Dict[str, Any]): Metadata dictionary.
+        max_rows_read (int, optional): Maximum number of rows to read. Defaults to None.
+
+    Returns:
+        pd.DataFrame: Processed DataFrame.
+    """
+    file_name = csv_path.name
+    logger.info(f"Processing file: {file_name}")
+
+    # Compute file hash
+    try:
+        file_hash = compute_md5(csv_path)
+        logger.debug(f"Computed MD5 for {file_name}: {file_hash}")
+    except Exception as e:
+        logger.error(f"Failed to compute MD5 for {file_name}: {e}")
+        return pd.DataFrame()  # Return empty DataFrame to skip processing
+
+    # Check if file has been processed
+    if is_file_processed(file_hash, metadata):
+        logger.info(f"File {file_name} has already been processed. Skipping.")
+        return pd.DataFrame()
+
+    # Read CSV
+    try:
+        df = pd.read_csv(csv_path, nrows=max_rows_read) if max_rows_read else pd.read_csv(csv_path)
+        logger.debug(f"Read {len(df)} rows from {file_name}")
+        if df.empty:
+            logger.warning(f"File {file_name} is empty. Marking as processed with 0 rows.")
+            mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
+            return pd.DataFrame()
+    except pd.errors.EmptyDataError:
+        logger.error(f"EmptyDataError: File {file_name} is empty.")
+        mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
+        return pd.DataFrame()
+    except pd.errors.ParserError as pe:
+        logger.error(f"ParserError while reading {file_name}: {pe}")
+        mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
+        return pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Unexpected error while reading {file_name}: {e}")
+        mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
+        return pd.DataFrame()
+
+    # Deduplication
+    initial_shape = df.shape
+    df.drop_duplicates(inplace=True)
+    final_shape = df.shape
+    logger.info(f"Deduplicated {file_name}: {initial_shape} -> {final_shape}")
+
+    # Validate and align columns
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        logger.warning(f"File {file_name} is missing columns: {missing_columns}. Adding with NaN values.")
+        for col in missing_columns:
+            df[col] = pd.NA
+    df = df[required_columns]  # Reorder columns
+
+    # Update metadata
+    rows_count = final_shape[0]
+    mark_file_as_processed(file_name, file_hash, rows_count, metadata, METADATA_PATH)
+    logger.info(f"File {file_name} marked as processed with {rows_count} rows.")
+
+    return df
+
+
+
+def archive_file(csv_path: Path, archive_dir: Path) -> None:
+    """
+    Archives the processed CSV file by moving it to the archive directory with a timestamp.
+
+    Args:
+        csv_path (Path): Path to the CSV file.
+        archive_dir (Path): Path to the archive directory.
+    """
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_file_name = f"{timestamp}_{csv_path.name}"
+        archive_path = archive_dir / archive_file_name
+        shutil.move(str(csv_path), str(archive_path))
+        logger.info(f"Archived file {csv_path.name} to {archive_path}")
+    except Exception as e:
+        logger.error(f"Failed to archive file {csv_path.name}: {e}")
+
+
+def ingest_data(raw_dir: Path = RAW_DIR) -> None:
+    """
+    Performs data ingestion: reads raw CSV files, processes them, and archives the raw files.
+
+    Args:
+        raw_dir (Path, optional): Directory containing raw CSV files. Defaults to RAW_DIR.
+    """
+    logger.info("=== Starting data ingestion process ===")
+
+    # Load metadata
+    metadata = load_metadata(METADATA_PATH)
+
+    # Find all CSV files
+    csv_files = find_csv_files(raw_dir)
+    logger.info(f"Found {len(csv_files)} CSV files in {raw_dir}")
 
     if not csv_files:
-        logger.warning("No CSV files found. Terminating ingestion process.")
+        logger.warning("No CSV files found. Terminating data ingestion process.")
         return
 
-    # 3. Initialize combined DataFrame
+    # Get required columns from config
+    required_columns = config["data_check"].get("required_columns", [])
+    if not required_columns:
+        logger.warning("No required columns specified in config. Proceeding without column validation.")
+
+    # Initialize combined DataFrame
     combined_df = pd.DataFrame()
 
     for csv_path in csv_files:
-        file_name = os.path.basename(csv_path)
-        logger.info(f"Processing: {file_name}")
+        processed_df = process_file(
+            csv_path=csv_path,
+            required_columns=required_columns,
+            metadata=metadata,
+            max_rows_read=MAX_ROWS_READ
+        )
 
-        # 4. Compute file hash
-        try:
-            file_hash = compute_md5(csv_path)
-            logger.info(f"File hash: {file_hash}")
-        except Exception as e:
-            logger.error(f"Failed to compute hash for {file_name}: {e}")
-            continue
+        if not processed_df.empty:
+            combined_df = pd.concat([combined_df, processed_df], ignore_index=True)
+            logger.info(f"Appended data from {csv_path.name} to combined DataFrame.")
 
-        # 5. Check if file has been processed before
-        if is_file_processed(file_hash, metadata):
-            logger.info(f"{file_name} has already been processed. Skipping.")
-            continue
-
-        # 6. Read CSV into DataFrame (optional row limit)
-        try:
-            df = pd.read_csv(csv_path, nrows=MAX_ROWS_READ) if MAX_ROWS_READ else pd.read_csv(csv_path)
-            logger.debug(f"Number of rows read from {file_name}: {len(df)}")
-            if df.empty:
-                logger.warning(f"{file_name} is an empty file. Not processing.")
-                mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
+            # Save to interim directory
+            try:
+                INTERIM_DIR.mkdir(parents=True, exist_ok=True)
+                interim_file = INTERIM_DIR / f"interim_{csv_path.name}"
+                processed_df.to_csv(interim_file, index=False)
+                logger.info(f"Saved interim data to {interim_file}")
+            except Exception as e:
+                logger.error(f"Failed to save interim data for {csv_path.name}: {e}")
                 continue
-        except Exception as e:
-            logger.error(f"Failed to read {file_name}: {e}")
-            mark_file_as_processed(file_name, file_hash, 0, metadata, METADATA_PATH)
-            continue
 
-        # 7. Perform deduplication
-        initial_shape = df.shape
-        df.drop_duplicates(inplace=True)
-        final_shape = df.shape
-        logger.info(f"Deduplication: {initial_shape} -> {final_shape}")
+            # Move raw file to archive
+            archive_file(csv_path, ARCHIVE_DIR)
 
-        # 8. Validate and Align Columns
-        required_columns = config["data_check"].get("required_columns", [])
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            logger.warning(
-                f"{file_name} is missing columns: {missing_columns}. These columns will be added with NaN values.")
-            for col in missing_columns:
-                df[col] = pd.NA
-        # Ensure columns are in the same order
-        df = df[required_columns]
+    # Final Deduplication on Combined DataFrame
+    if not combined_df.empty:
+        initial_shape = combined_df.shape
+        combined_df.drop_duplicates(inplace=True)
+        final_shape = combined_df.shape
+        logger.info(f"Combined DataFrame deduplication: {initial_shape} -> {final_shape}")
 
-        # 9. Append to combined DataFrame
-        combined_df = pd.concat([combined_df, df], ignore_index=True)
-        logger.info(f"Appended data from {file_name} to combined DataFrame.")
-
-        # 10. Save processed data to interim
+        # Save the combined DataFrame to processed directory
+        output_file = PROCESSED_DIR / "epa_long_preprocessed.csv"
         try:
-            os.makedirs(INTERIM_DIR, exist_ok=True)
-            interim_file = os.path.join(INTERIM_DIR, f"interim_{file_name}")
-            df.to_csv(interim_file, index=False)
-            logger.info(f"Processed data saved to interim: {interim_file}")
+            PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+            combined_df.to_csv(output_file, index=False)
+            logger.info(f"Saved combined DataFrame to {output_file}")
         except Exception as e:
-            logger.error(f"Error saving processed data to interim: {e}")
-            mark_file_as_processed(file_name, file_hash, final_shape[0], metadata, METADATA_PATH)
-            continue
+            logger.error(f"Failed to save combined DataFrame: {e}")
+    else:
+        logger.warning("No data to combine. Skipping saving combined DataFrame.")
 
-        # 11. Move processed data to processed directory
-        try:
-            os.makedirs(PROCESSED_DIR, exist_ok=True)
-            processed_file = os.path.join(PROCESSED_DIR, f"processed_{file_name}")
-            shutil.move(interim_file, processed_file)
-            logger.info(f"Processed data moved to processed directory: {processed_file}")
-        except Exception as e:
-            logger.error(f"Error moving processed data to processed directory: {e}")
-            mark_file_as_processed(file_name, file_hash, final_shape[0], metadata, METADATA_PATH)
-            continue
+    # Save updated metadata
+    save_metadata(metadata, METADATA_PATH)
 
-        # 12. Copy file to archive (ham verileri silmeden)
-        try:
-            os.makedirs(ARCHIVE_DIR, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            archive_file_name = f"{timestamp}_{file_name}"
-            archive_path = os.path.join(ARCHIVE_DIR, archive_file_name)
-            shutil.copy(csv_path, archive_path)  # shutil.move yerine shutil.copy kullanıldı
-            logger.info(f"File copied to archive: {archive_path}")
-        except Exception as e:
-            logger.error(f"Error copying file to archive: {e}")
-            # Continue processing
-            pass
+    logger.info("=== Data ingestion process completed ===")
 
-        # 13. Update metadata
-        rows_count = final_shape[0]
-        try:
-            mark_file_as_processed(file_name, file_hash, rows_count, metadata, METADATA_PATH)
-            logger.info(f"{file_name} added to metadata.")
-        except Exception as e:
-            logger.error(f"Error updating metadata: {e}")
-
-    logger.info(f"Combined DataFrame size before deduplication: {combined_df.shape}")
-
-    # 14. Final Deduplication on Combined DataFrame
-    combined_initial_shape = combined_df.shape
-    combined_df.drop_duplicates(inplace=True)
-    combined_final_shape = combined_df.shape
-    logger.info(f"Combined DataFrame deduplication: {combined_initial_shape} -> {combined_final_shape}")
-
-    # 15. Save the combined DataFrame to a CSV file as 'epa_long_preprocessed.csv'
-    output_file = os.path.join(PROCESSED_DIR, "epa_long_preprocessed.csv")
-    try:
-        combined_df.to_csv(output_file, index=False)
-        logger.info(f"Combined DataFrame saved as 'epa_long_preprocessed.csv': {output_file}")
-    except Exception as e:
-        logger.error(f"Failed to save combined DataFrame: {e}")
-
-    logger.info("Data ingestion process completed.")
 
 
 if __name__ == "__main__":
