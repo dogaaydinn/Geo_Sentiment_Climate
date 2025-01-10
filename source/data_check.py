@@ -1,6 +1,7 @@
 import glob
 import os
 from datetime import datetime
+from typing import List, Tuple, Dict, Any
 
 import pandas as pd
 
@@ -8,76 +9,116 @@ from source.utils.config_loader import load_config
 from source.utils.logger import setup_logger
 from source.utils.path_utils import add_source_to_sys_path
 
-# Maximum number of rows to read (to speed up processing for large files)
 MAX_ROWS_READ = 5000
+
 # Load config
-config_path = os.path.join(os.path.abspath("../config"), "settings.yml")
-config = load_config(config_path)
+CONFIG_PATH = os.path.join(os.path.abspath("../config"), "settings.yml")
+config = load_config(CONFIG_PATH)
 
 # Add source to sys.path
 add_source_to_sys_path()
 
-# Check if all required config keys are present
-required_keys = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
-for key in required_keys:
-    if key not in config["paths"]:
-        raise KeyError(f"Key 'paths.{key}' not found in config file.")
+# Validate required config keys
+REQUIRED_KEYS = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
+missing_keys = [key for key in REQUIRED_KEYS if key not in config.get("paths", {})]
+if missing_keys:
+    raise KeyError(f"Missing required config keys: {missing_keys}")
 
 RAW_DIR = os.path.abspath(config["paths"]["raw_dir"])
-# Logger setup (to write logs to a file)
+
+# Logger setup
 logger = setup_logger(
     name="data_check",
     log_file=os.path.join(config["paths"]["logs_dir"], "data_check.log"),
-    log_level="INFO"
+    log_level=config.get("logging", {}).get("level", "INFO").upper()
 )
 
 
-def validate_columns(df, required_columns):
+def validate_columns(df: pd.DataFrame, required_columns: List[str]) -> Tuple[bool, List[str]]:
+    """
+    Validates if the DataFrame contains all required columns.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to validate.
+        required_columns (List[str]): List of required column names.
+
+    Returns:
+        Tuple[bool, List[str]]: A tuple indicating if validation passed and missing columns.
+    """
     missing_cols = [col for col in required_columns if col not in df.columns]
     return len(missing_cols) == 0, missing_cols
 
 
-def check_raw_data(raw_dir=RAW_DIR) -> None:
-    logger.info("=== Starting data check... ===")
+def find_csv_files(directory: str) -> List[str]:
+    """
+    Finds all CSV files within a directory and its subdirectories.
 
-    # write a code for how many csv files are in the raw directory and its subdirectories
+    Args:
+        directory (str): The directory to search.
 
-    # Load config
-    config_path = "../config/settings.yml"
-    config = load_config(config_path)
-    if config is None:
-        logger.error("Failed to load config file or returned None, terminating process.")
-        return
+    Returns:
+        List[str]: List of CSV file paths.
+    """
+    csv_files = glob.glob(os.path.join(directory, "**/*.csv"), recursive=True)
+    logger.debug(f"Found {len(csv_files)} CSV files in {directory}")
+    return csv_files
 
-    # Is 'data_check' or 'required_columns' defined?
-    if "data_check" not in config or "required_columns" not in config["data_check"]:
-        logger.warning("'data_check' / 'required_columns' not defined in config file. Continuing.")
-        required_columns = []
-    else:
-        required_columns = config["data_check"]["required_columns"]
 
-    # paths -> processed_dir
-    processed_dir = config["paths"].get("processed_dir", "../data/processed")
+def load_csv(filepath: str, nrows: int = MAX_ROWS_READ) -> pd.DataFrame:
+    """
+    Loads a CSV file into a DataFrame.
 
-    # Log the raw directory being searched
-    logger.info(f"Searching for CSV files in directory: {raw_dir}")
+    Args:
+        filepath (str): Path to the CSV file.
+        nrows (int, optional): Number of rows to read. Defaults to MAX_ROWS_READ.
 
-    # Find all .csv files (including subfolders)
-    csv_files = glob.glob(os.path.join(raw_dir, "**/*.csv"), recursive=True)
-    logger.info(f"Number of CSV files found: {len(csv_files)} (directory: {raw_dir})")
+    Returns:
+        pd.DataFrame: The loaded DataFrame.
+    """
+    return pd.read_csv(filepath, nrows=nrows)
 
-    # Log the paths of the found CSV files
-    for csv_file in csv_files:
-        logger.info(f"Found CSV file: {csv_file}")
 
+def generate_report(report_rows: List[Dict[str, Any]], processed_dir: str) -> str:
+    """
+    Generates a CSV report from report rows.
+
+    Args:
+        report_rows (List[Dict[str, Any]]): List of report data.
+        processed_dir (str): Directory to save the report.
+
+    Returns:
+        str: Path to the generated report.
+    """
+    df_report = pd.DataFrame(report_rows)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_name = f"data_check_report_{timestamp}.csv"
+    os.makedirs(processed_dir, exist_ok=True)
+    output_path = os.path.join(processed_dir, report_name)
+    df_report.to_csv(output_path, index=False)
+    logger.info(f"Data check report created at {output_path}")
+    return output_path
+
+
+def check_raw_data(raw_dir: str = RAW_DIR) -> None:
+    """
+    Performs data validation on raw CSV files.
+
+    Args:
+        raw_dir (str, optional): Directory containing raw CSV files. Defaults to RAW_DIR.
+    """
+    logger.info("=== Starting data check ===")
+
+    csv_files = find_csv_files(raw_dir)
     if not csv_files:
-        logger.warning("No CSV files found! check_raw_data is terminating.")
+        logger.warning("No CSV files found in the specified directory. Terminating data check.")
         return
 
-    # Collect report rows in a list
+    config_data_check = config.get("data_check", {})
+    required_columns = config_data_check.get("required_columns", [])
+    quick_check_limit = config_data_check.get("quick_check_limit", 5)
+
     report_rows = []
 
-    # Check each file
     for idx, csv_path in enumerate(csv_files, start=1):
         row_info = {
             "file_path": csv_path,
@@ -89,67 +130,48 @@ def check_raw_data(raw_dir=RAW_DIR) -> None:
             "notes": "",
         }
 
-        # Read the file (first MAX_ROWS_READ rows)
         try:
-            df = pd.read_csv(csv_path, nrows=MAX_ROWS_READ)
-
+            df = load_csv(csv_path)
             if df.empty:
-                # Empty file
-                logger.warning(f"[Empty] File is completely empty: {csv_path}")
+                logger.warning(f"[Empty] The file is empty: {csv_path}")
                 row_info["empty_file"] = True
                 row_info["test_pass"] = False
                 row_info["notes"] = "File is completely empty."
             else:
-                # File row/column info
                 row_info["row_count"] = df.shape[0]
                 row_info["col_count"] = df.shape[1]
                 row_info["columns"] = ", ".join(df.columns.tolist())
 
-                # Required column check
                 cols_ok, missing_cols = validate_columns(df, required_columns)
                 if not cols_ok:
                     row_info["test_pass"] = False
                     row_info["notes"] += f" Missing columns: {missing_cols}."
 
-                # Log missing count for only the first 'quick_check_limit' files
-                if idx <= config.get("data_check", {}).get("quick_check_limit", 5):
+                if idx <= quick_check_limit:
                     missing_dict = df.isnull().sum().to_dict()
                     logger.info(f"[QuickCheck] File={csv_path}, Shape={df.shape}, Missing={missing_dict}")
 
         except pd.errors.EmptyDataError:
-            logger.error(f"[EmptyDataError] File is completely empty: {csv_path}")
+            logger.error(f"[EmptyDataError] The file is empty: {csv_path}")
             row_info["empty_file"] = True
             row_info["test_pass"] = False
             row_info["notes"] = "EmptyDataError."
         except pd.errors.ParserError as pe:
-            logger.error(f"[ParserError] {csv_path}, Error: {pe}")
+            logger.error(f"[ParserError] Error parsing {csv_path}: {pe}")
             row_info["test_pass"] = False
             row_info["notes"] = "ParserError."
         except Exception as e:
-            logger.error(f"[UnknownError] {csv_path}, Error: {e}")
+            logger.error(f"[UnknownError] Error processing {csv_path}: {e}")
             row_info["test_pass"] = False
             row_info["notes"] = f"Unknown error: {e}"
 
         report_rows.append(row_info)
+        logger.debug(f"Processed file {idx}/{len(csv_files)}: {csv_path}")
 
-    # Report DataFrame
-    df_report = pd.DataFrame(report_rows)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_name = f"data_check_report_{timestamp}.csv"
+    report_path = generate_report(report_rows, config["paths"]["processed_dir"])
 
-    # Create processed_dir if it doesn't exist
-    os.makedirs(processed_dir, exist_ok=True)
-    output_path = os.path.join(processed_dir, report_name)
-    df_report.to_csv(output_path, index=False)
-    logger.info(f"Data check report created -> {output_path}")
-
-    # Log each row if desired:
-    for _, row in df_report.iterrows():
-        logger.info(f"[Report] {row.to_dict()}")
-
-    logger.info("=== Data check process completed. ===")
+    logger.info("=== Data check completed ===")
 
 
-# Run the data check process if this script is run directly
 if __name__ == "__main__":
     check_raw_data()
