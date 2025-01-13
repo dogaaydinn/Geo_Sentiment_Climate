@@ -35,6 +35,10 @@ data_check:
     - Site ID
     - POC
     - Daily Max 1-hour SO2 Concentration
+    - Daily Max 8-hour Ozone Concentration
+    - Daily Max 8-hour CO Concentration
+    - Daily Max 1-hour NO2 Concentration
+    - Daily Mean PM2.5 Concentration
     - Units
     - Daily AQI Value
     - Local Site Name
@@ -63,6 +67,43 @@ data_check:
     - "CBSA Name"
     - "State FIPS Code"
     - "County FIPS Code"
+
+# Column types for data check
+column_types:
+  datetime:
+    - Date
+  string:
+    - Source
+    - Site ID
+    - POC
+    - Units
+    - Local Site Name
+    - AQS Parameter Code
+    - AQS Parameter Description
+    - Method Code
+    - CBSA Code
+    - CBSA Name
+    - State FIPS Code
+    - State
+    - County FIPS Code
+    - County
+  float:
+    - Daily AQI Value
+    - Percent Complete
+    - Site Latitude
+    - Site Longitude
+  int:
+    - Daily Obs Count
+
+# Satır okuma limiti (None => hepsini oku, aksi halde 5000)
+  max_rows_read: 5000
+  # Quick check için ilk kaç dosyaya bakılacak
+  quick_check_limit: 5
+  # Dosyanın boyutu veya satır sayısı şu eşiğin üstündeyse chunk okuma yap
+  chunk_size_threshold: 500000  # satır sayısı
+  chunk_size: 100000           # chunk bazlı okuma boyutu
+  # Oransal örnekleme yüzdesi (0.05 => %5)
+  sampling_ratio: 0.05
 
 parameters:
   missing_value_method: "mean"
