@@ -1,11 +1,7 @@
-# source/utils/logger.py
-
 import logging
 from pathlib import Path
-from typing import Optional
 import colorlog
 from logging.handlers import RotatingFileHandler
-
 
 def setup_logger(name: str, log_file: str, log_level=logging.INFO) -> logging.Logger:
     """
@@ -21,7 +17,7 @@ def setup_logger(name: str, log_file: str, log_level=logging.INFO) -> logging.Lo
     """
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
-    logger.propagate = False  # Propagation'ı kapatın
+    logger.propagate = False  # Prevent log messages from being propagated to the root logger
 
     if not logger.handlers:
         # File handler with rotation
