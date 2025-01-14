@@ -1,6 +1,5 @@
 import hashlib
 
-
 def compute_md5(file_path: str) -> str:
     hash_md5 = hashlib.md5()
     with open(file_path, "rb") as f:
