@@ -1,23 +1,12 @@
 import logging
-from pathlib import Path
 import colorlog
 from logging.handlers import RotatingFileHandler
 
 def setup_logger(name: str, log_file: str, log_level=logging.INFO) -> logging.Logger:
-    """
-    Sets up a logger with both file and colored console handlers.
 
-    Args:
-        name (str): Name of the logger.
-        log_file (str): Path to the log file.
-        log_level (int, optional): Logging level. Defaults to logging.INFO.
-
-    Returns:
-        logging.Logger: Configured logger.
-    """
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
-    logger.propagate = False  # Prevent log messages from being propagated to the root logger
+    logger.propagate = False
 
     if not logger.handlers:
         # File handler with rotation
