@@ -1,46 +1,23 @@
-# source/eda_exploration.py
-
-import logging
-
-import matplotlib.pyplot as plt
-import missingno as msno
 import pandas as pd
 import seaborn as sns
+import missingno as msno
+import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import List, Dict, Any
-
-from source.utils.path_utils import add_source_to_sys_path
 from source.utils.logger import setup_logger
+from source.utils.path_utils import add_source_to_sys_path
 
-def add_source_to_sys_path_if_needed():
-    """
-    Adds the 'source' directory to the system path if it's not already included.
-    """
-    import sys
-    source_path = Path(__file__).resolve().parent
-    if str(source_path) not in sys.path:
-        sys.path.append(str(source_path))
-
-# Add source to sys.path
-add_source_to_sys_path_if_needed()
+add_source_to_sys_path()
 
 # Setup logger
 logger = setup_logger(
     name="eda_exploration",
-    log_file=Path("../04-logs") / "eda_exploration.log",
+    log_file=str(Path("../logs") / "eda_exploration.log"),
     log_level="INFO"
 )
 
 def load_data(file_path: Path) -> pd.DataFrame:
-    """
-    Loads data from a CSV file.
 
-    Args:
-        file_path (Path): Path to the CSV file.
-
-    Returns:
-        pd.DataFrame: Loaded DataFrame.
-    """
     logger.info(f"Loading data from {file_path}")
     try:
         data = pd.read_csv(file_path)
@@ -51,15 +28,7 @@ def load_data(file_path: Path) -> pd.DataFrame:
         raise
 
 def basic_info(df: pd.DataFrame) -> Dict[str, Any]:
-    """
-    Generates basic information about the dataset.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-
-    Returns:
-        Dict[str, Any]: Dictionary containing basic information.
-    """
     info = {
         "Shape": df.shape,
         "Columns": df.columns.tolist(),
@@ -71,14 +40,7 @@ def basic_info(df: pd.DataFrame) -> Dict[str, Any]:
     return info
 
 def missing_values(df: pd.DataFrame, save: bool = False, save_path: Path = None) -> None:
-    """
-    Analyzes and visualizes missing values in the dataset.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        save (bool, optional): Whether to save the plot. Defaults to False.
-        save_path (Path, optional): Path to save the plot if save is True. Defaults to None.
-    """
     logger.info("Analyzing missing values in the dataset.")
     try:
         missing_percentages = df.isnull().mean() * 100
@@ -102,15 +64,7 @@ def missing_values(df: pd.DataFrame, save: bool = False, save_path: Path = None)
         raise
 
 def distribution_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool = False, save_dir: Path = None) -> None:
-    """
-    Performs distribution analysis for numeric columns and visualizes them.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plots. Defaults to False.
-        save_dir (Path, optional): Directory to save the plots if save is True. Defaults to None.
-    """
     logger.info("Performing distribution analysis for numeric columns.")
     try:
         for col in numeric_cols:
@@ -129,15 +83,7 @@ def distribution_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool 
         raise
 
 def correlation_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool = False, save_dir: Path = None) -> None:
-    """
-    Creates and visualizes a correlation matrix for numeric columns.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plot. Defaults to False.
-        save_dir (Path, optional): Directory to save the plot if save is True. Defaults to None.
-    """
     logger.info("Creating correlation matrix for numeric columns.")
     try:
         corr_matrix = df[numeric_cols].corr()
@@ -156,15 +102,7 @@ def correlation_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool =
         raise
 
 def detect_outliers(df: pd.DataFrame, numeric_cols: List[str], save: bool = False, save_dir: Path = None) -> None:
-    """
-    Detects and visualizes outliers in numeric columns using boxplots.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plots. Defaults to False.
-        save_dir (Path, optional): Directory to save the plots if save is True. Defaults to None.
-    """
     logger.info("Detecting outliers in numeric columns.")
     try:
         for col in numeric_cols:
