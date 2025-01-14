@@ -1,7 +1,6 @@
 import pytest
 import pandas as pd
 
-
 @pytest.fixture
 def sample_data():
     return pd.DataFrame({
@@ -10,10 +9,8 @@ def sample_data():
         "C": ["a", "b", "c"]
     })
 
-
 def test_missing_values(sample_data):
     assert sample_data.isnull().sum().sum() == 1
-
 
 def test_column_names(sample_data):
     expected_columns = ["A", "B", "C"]

@@ -1,13 +1,10 @@
-# tests/test_feature_engineering.py
-
 import unittest
 import pandas as pd
 from source.feature_engineering import scale_features, create_interaction_terms
 
-
 class TestFeatureEngineering(unittest.TestCase):
     def setUp(self):
-        # Örnek veri setleri oluşturun
+        # Create a sample DataFrame
         data = {
             'feature1': [1, 2, 3, 4, 5],
             'feature2': [5, 4, 3, 2, 1]
@@ -45,7 +42,6 @@ class TestFeatureEngineering(unittest.TestCase):
     def test_create_interaction_terms_missing_column(self):
         with self.assertRaises(KeyError):
             create_interaction_terms(self.df, col1='feature1', col2='non_existent', operation='multiply')
-
 
 if __name__ == '__main__':
     unittest.main()

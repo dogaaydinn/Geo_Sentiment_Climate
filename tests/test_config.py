@@ -1,7 +1,6 @@
 import pytest
 from source.utils.config_loader import load_config
 
-
 @pytest.fixture
 def config_path():
     return "../config/settings.yml"

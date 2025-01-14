@@ -1,5 +1,3 @@
-# tests/test_missing_value_comparison.py
-
 import unittest
 import pandas as pd
 from source.missing_value_comparison import compare_missing_values
