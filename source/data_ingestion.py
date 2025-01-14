@@ -1,15 +1,14 @@
-import shutil
 import sys
-from datetime import datetime
 import pandas as pd
+import shutil
 from pathlib import Path
+from datetime import datetime
 from typing import Dict, Any, Optional, List
-
-from source.utils.config_loader import load_config
 from source.utils.logger import setup_logger
-from source.utils.metadata_manager import load_processed_files
 from source.utils.hash_utils import compute_md5
-
+from source.utils.config_loader import load_config
+from source.utils.path_utils import add_source_to_sys_path
+from source.utils.metadata_manager import load_processed_files
 ########################
 # Fix for mark_file_as_processed signature:
 ########################
@@ -20,18 +19,7 @@ def mark_file_as_processed(
     metadata: Dict[str, Any],
     metadata_path: Path
 ):
-    """
-    Adds an entry to `metadata["processed_files"]` or whatever logic you need.
-    Example:
-        metadata.setdefault("processed_files", [])
-        metadata["processed_files"].append({
-            "file_name": file_name,
-            "hash": file_hash,
-            "rows_count": rows_count,
-            "timestamp": datetime.now().isoformat()
-        })
-    Then save to JSON, etc.
-    """
+
     metadata.setdefault("processed_files", [])
     metadata["processed_files"].append({
         "file_name": file_name,
@@ -48,10 +36,6 @@ def mark_file_as_processed(
 ########################
 # add_source_to_sys_path
 ########################
-def add_source_to_sys_path():
-    here = Path(__file__).resolve().parent
-    if str(here) not in sys.path:
-        sys.path.append(str(here))
 
 add_source_to_sys_path()
 
@@ -73,9 +57,10 @@ ARCHIVE_DIR = Path(config["paths"]["archive_dir"]).resolve()
 METADATA_DIR = Path(config["paths"]["metadata_dir"]).resolve()
 METADATA_PATH = METADATA_DIR / "processed_files.json"
 
+
 logger = setup_logger(
     name="data_ingestion",
-    log_file=Path(config["paths"]["logs_dir"]) / "data_ingestion.log",
+    log_file=str(Path(config["paths"]["logs_dir"]) / "data_ingestion.log"),
     log_level=config.get("logging", {}).get("level", "INFO").upper()
 )
 
@@ -120,11 +105,7 @@ def process_file(
     metadata: Dict[str, Any],
     max_rows: Optional[int] = None
 ) -> pd.DataFrame:
-    """
-    Reads a single CSV, deduplicates, updates metadata.
-    Returns the minimal DataFrame with only relevant columns for that pollutant
-    (like Date, Site, County, pollutant-specific columns).
-    """
+
     file_name = csv_path.name
     logger.info(f"Processing file {file_name}")
 
@@ -220,18 +201,7 @@ def archive_file(csv_path: Path):
 # Outer join final
 ########################
 def merge_pollutants(dict_of_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """
-    dict_of_dfs:
-      {
-        "co": df_co,
-        "so2": df_so2,
-        "no2": df_no2,
-        ...
-      }
-    We'll do outer merges => final
-    Join keys: e.g. ["Date","Site ID","County"]
-    (Or read from config)
-    """
+
     join_keys = ["Date","Site ID"]  # example; you can add "County" if you want
     # start from one
     pollutants = list(dict_of_dfs.keys())
@@ -248,12 +218,7 @@ def merge_pollutants(dict_of_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 # ingest_data => main
 ########################
 def ingest_data(raw_dir: Path = RAW_DIR):
-    """
-    1) find all CSV
-    2) process each => identify pollutant => store partial DF in dict_of_dfs[pollutant]
-    3) each file archived after processed
-    4) at end => for each poll => concat => outer join => final CSV
-    """
+
     logger.info("=== Starting multi-pollutant ingestion with outer join ===")
 
     metadata = load_processed_files(METADATA_PATH)
