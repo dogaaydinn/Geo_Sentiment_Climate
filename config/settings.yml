@@ -1,120 +1,297 @@
-# Global project config
-project_name: "Geo_Sentiment_Climate"
-
-# Data ingestion config
-paths:
-  raw_dir: "../data/raw/"
-  interim_dir: "../data/interim/"
-  processed_dir: "../data/processed/"
-  metadata_dir: "../data/metadata/"
-  plots_dir: "../plots/"
-  logs_dir: "../logs/"
-  archive_dir: "../data/archive/"
-
-# Parameter rename map example
-rename_map_common:
-  "Date": "date"
-  "Units": "units"
-  "Daily AQI Value": "aqi"
-  "State FIPS Code": "state_fips"
-  "County FIPS Code": "county_fips"
-
-# Param specific rename
-rename_map_param:
-  so2: "Daily Max 1-hour SO2 Concentration"
-  o3: "Daily Max 8-hour Ozone Concentration"
-  co: "Daily Max 8-hour CO Concentration"
-  no2: "Daily Max 1-hour NO2 Concentration"
-  pm25: "Daily Mean PM2.5 Concentration"
-
-# Required columns for data check
-data_check:
-  required_columns:
-    - Date
-    - Source
-    - Site ID
-    - POC
-    - Daily Max 1-hour SO2 Concentration
-    - Daily Max 8-hour Ozone Concentration
-    - Daily Max 8-hour CO Concentration
-    - Daily Max 1-hour NO2 Concentration
-    - Daily Mean PM2.5 Concentration
-    - Units
-    - Daily AQI Value
-    - Local Site Name
-    - Daily Obs Count
-    - Percent Complete
-    - AQS Parameter Code
-    - AQS Parameter Description
-    - Method Code
-    - CBSA Code
-    - CBSA Name
-    - State FIPS Code
-    - State
-    - County FIPS Code
-    - County
-    - Site Latitude
-    - Site Longitude
-  optional_columns:
-    - "Source"
-    - "Site ID"
-    - "POC"
-    - "Local Site Name"
-    - "Daily Obs Count"
-    - "Percent Complete"
-    - "Method Code"
-    - "CBSA Code"
-    - "CBSA Name"
-    - "State FIPS Code"
-    - "County FIPS Code"
-
-# Column types for data check
 column_types:
   datetime:
-    - Date
-  string:
-    - Source
-    - Site ID
-    - POC
-    - Units
-    - Local Site Name
-    - AQS Parameter Code
-    - AQS Parameter Description
-    - Method Code
-    - CBSA Code
-    - CBSA Name
-    - State FIPS Code
-    - State
-    - County FIPS Code
-    - County
+  - Date
   float:
-    - Daily AQI Value
-    - Percent Complete
-    - Site Latitude
-    - Site Longitude
+  - Daily AQI Value
+  - Percent Complete
+  - Site Latitude
+  - Site Longitude
   int:
+  - Daily Obs Count
+  string:
+  - Source
+  - Site ID
+  - POC
+  - Units
+  - Local Site Name
+  - AQS Parameter Code
+  - AQS Parameter Description
+  - Method Code
+  - CBSA Code
+  - CBSA Name
+  - State FIPS Code
+  - State
+  - County FIPS Code
+  - County
+
+columns:
+  co:
+    all_columns:
+    - Daily Max 8-hour CO Concentration
+    - Daily Max 1-hour NO2 Concentration
+    - POC
+    - CBSA Code
+    - Method Description
+    - Site Longitude
+    - Source
+    - Date
+    - Daily Max 8-hour Ozone Concentration
+    - Local Site Name
+    - County
+    - Site Latitude
     - Daily Obs Count
-
-# Satır okuma limiti (None => hepsini oku, aksi halde 5000)
-  max_rows_read: 5000
-  # Quick check için ilk kaç dosyaya bakılacak
-  quick_check_limit: 5
-  # Dosyanın boyutu veya satır sayısı şu eşiğin üstündeyse chunk okuma yap
-  chunk_size_threshold: 500000  # satır sayısı
-  chunk_size: 100000           # chunk bazlı okuma boyutu
-  # Oransal örnekleme yüzdesi (0.05 => %5)
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Daily Mean PM2.5 Concentration
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    common_columns:
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Date
+    - Source
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+  no2:
+    all_columns:
+    - Daily Max 1-hour NO2 Concentration
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Source
+    - Date
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    common_columns:
+    - Daily Max 1-hour NO2 Concentration
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Source
+    - Date
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+  o3:
+    all_columns:
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Source
+    - Date
+    - Daily Max 8-hour Ozone Concentration
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    common_columns:
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Date
+    - Source
+    - Daily Max 8-hour Ozone Concentration
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+  pm25:
+    all_columns:
+    - POC
+    - CBSA Code
+    - Method Description
+    - Site Longitude
+    - Source
+    - Date
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Daily Mean PM2.5 Concentration
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    common_columns:
+    - POC
+    - CBSA Code
+    - Method Description
+    - Site Longitude
+    - Source
+    - Date
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Daily Mean PM2.5 Concentration
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+  so2:
+    all_columns:
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Source
+    - Date
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    - Daily Max 1-hour SO2 Concentration
+    common_columns:
+    - POC
+    - CBSA Code
+    - Site Longitude
+    - Date
+    - Source
+    - Local Site Name
+    - County
+    - Site Latitude
+    - Daily Obs Count
+    - Percent Complete
+    - AQS Parameter Description
+    - CBSA Name
+    - Site ID
+    - County FIPS Code
+    - AQS Parameter Code
+    - State FIPS Code
+    - Units
+    - State
+    - Daily AQI Value
+    - Method Code
+    - Daily Max 1-hour SO2 Concentration
+data_check:
+  # Bu kısım sadece numeric parametreler
+  chunk_size_threshold: 500000
+  chunk_size: 100000
   sampling_ratio: 0.05
-
-parameters:
-  missing_value_method: "mean"
-  scaling_method: "standard"
-  max_rows: 5000
+  quick_check_limit: 5
+  max_rows_read: 5000
 
 eda:
-  numeric_threshold: 0.75
   max_categories: 20
-
+  numeric_threshold: 0.75
 logging:
-  log_file: "../logs/project.log"
-  log_level: "INFO"
-  log_format: "%(asctime)s - %(levelname)s - %(message)s"
+  log_file: ../logs/project.log
+  log_format: '%(asctime)s - %(levelname)s - %(message)s'
+  log_level: INFO
+parameters:
+  max_rows: 5000
+  missing_value_method: mean
+  scaling_method: standard
+paths:
+  archive_dir: ../data/archive/
+  interim_dir: ../data/interim/
+  logs_dir: ../logs/
+  metadata_dir: ../data/metadata/
+  plots_dir: ../plots/
+  processed_dir: ../data/processed/
+  raw_dir: ../data/raw/
+project_name: Geo_Sentiment_Climate
+rename_map_common:
+  County FIPS Code: county_fips
+  Daily AQI Value: aqi
+  Date: date
+  State FIPS Code: state_fips
+  Units: units
+rename_map_param:
+  co: Daily Max 8-hour CO Concentration
+  no2: Daily Max 1-hour NO2 Concentration
+  o3: Daily Max 8-hour Ozone Concentration
+  pm25: Daily Mean PM2.5 Concentration
+  so2: Daily Max 1-hour SO2 Concentration
