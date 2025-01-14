@@ -1,6 +1,5 @@
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-
 def scale_features(df, cols, method="standard"):
     if method == "standard":
         scaler = StandardScaler()
@@ -11,7 +10,6 @@ def scale_features(df, cols, method="standard"):
 
     df[cols] = scaler.fit_transform(df[cols])
     return df
-
 
 def create_interaction_terms(df, col1, col2, operation="multiply"):
     if operation == "multiply":
