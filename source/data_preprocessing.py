@@ -1,35 +1,27 @@
-# source/data_preprocessing.py
-
 import matplotlib.pyplot as plt
 import missingno as msno
 import numpy as np
+import matplotlib.axes as maxes
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
 from typing import List, Dict, Any
-
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-
+# Enable IterativeImputer
+from sklearn.experimental import enable_iterative_imputer
+# Import the imputer classes
+from sklearn.impute import IterativeImputer, KNNImputer
+from source.missing_handle import advanced_concentration_pipeline
+from source.missing_value_comparison import compare_missing_values
 from source.utils.config_loader import load_config
 from source.utils.logger import setup_logger
 from source.utils.path_utils import add_source_to_sys_path
-from source.missing_handle import advanced_concentration_pipeline
-from source.missing_value_comparison import compare_missing_values
 
-def add_source_to_sys_path_if_needed():
-    """
-    Adds the 'source' directory to the system path if it's not already included.
-    """
-    import sys
-    source_path = Path(__file__).resolve().parent.parent / "03-source"
-    if str(source_path) not in sys.path:
-        sys.path.append(str(source_path))
 
-# Add source to sys.path
-add_source_to_sys_path_if_needed()
+add_source_to_sys_path()
 
 # Load config
-CONFIG_PATH = Path("../00-config/settings.yml").resolve()
+CONFIG_PATH = Path("../config/settings.yml").resolve()
 config = load_config(CONFIG_PATH)
 
 if config is None:
@@ -38,8 +30,8 @@ if config is None:
 # Define directories using pathlib
 RAW_DIR = Path(config["paths"]["raw_dir"]).resolve()
 PROCESSED_DIR = Path(config["paths"]["processed_dir"]).resolve()
-PLOTS_DIR = Path(config["paths"].get("plots_dir", "../06-plots")).resolve()
-LOG_DIR = Path(config["paths"].get("logs_dir", "../04-logs")).resolve()
+PLOTS_DIR = Path(config["paths"].get("plots_dir", "../plots")).resolve()
+LOG_DIR = Path(config["paths"].get("logs_dir", "../logs")).resolve()
 
 # Create necessary directories
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,23 +40,32 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 # Setup logger
 logger = setup_logger(
     name="data_preprocessing",
-    log_file=LOG_DIR / "data_preprocessing.log",
+    log_file=str(LOG_DIR / "data_preprocessing.log"),
     log_level=config.get("logging", {}).get("level", "INFO").upper()
 )
 
 logger.info("Config file and directories loaded successfully.")
 
 
+# Store the original function reference
+_original_tick_params = maxes.Axes.tick_params
+
+def _patched_tick_params(self, *args, **kwargs):
+    # Remove 'grid_b' keyword if it exists
+    if "grid_b" in kwargs:
+        kwargs.pop("grid_b")
+    # Call the original tick_params function
+    return _original_tick_params(self, *args, **kwargs)
+
+# Apply the patch only once
+if not hasattr(maxes.Axes, "_already_patched_grid_b"):
+    maxes.Axes._already_patched_grid_b = True
+    maxes.Axes.tick_params = _patched_tick_params
+
+
+
 def load_data(file_path: Path) -> pd.DataFrame:
-    """
-    Loads data from a CSV file.
 
-    Args:
-        file_path (Path): Path to the CSV file.
-
-    Returns:
-        pd.DataFrame: Loaded DataFrame.
-    """
     logger.info(f"Loading data from {file_path}")
     try:
         data = pd.read_csv(file_path)
@@ -76,13 +77,7 @@ def load_data(file_path: Path) -> pd.DataFrame:
 
 
 def save_plot(fig: plt.Figure, filename: str) -> None:
-    """
-    Saves a matplotlib figure to the plots directory.
 
-    Args:
-        fig (plt.Figure): Matplotlib figure object.
-        filename (str): Name of the file to save the plot as.
-    """
     filepath = PLOTS_DIR / filename
     try:
         fig.savefig(filepath)
@@ -94,16 +89,7 @@ def save_plot(fig: plt.Figure, filename: str) -> None:
 
 
 def basic_info(df: pd.DataFrame, stage: str = "Initial") -> Dict[str, Any]:
-    """
-    Generates basic information about the dataset.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        stage (str, optional): The stage of processing. Defaults to "Initial".
-
-    Returns:
-        Dict[str, Any]: Dictionary containing basic information.
-    """
     logger.info(f"Generating basic info of the dataset at {stage} stage")
     info = {
         "Shape": df.shape,
@@ -116,13 +102,7 @@ def basic_info(df: pd.DataFrame, stage: str = "Initial") -> Dict[str, Any]:
 
 
 def visualize_missing_values(df: pd.DataFrame, save: bool = True) -> None:
-    """
-    Visualizes missing values in the dataset using missingno.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to visualize.
-        save (bool, optional): Whether to save the plot. Defaults to True.
-    """
     logger.info("Visualizing missing values.")
     try:
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -137,16 +117,7 @@ def visualize_missing_values(df: pd.DataFrame, save: bool = True) -> None:
 
 
 def fill_missing_values(df: pd.DataFrame, method: str = "mean") -> pd.DataFrame:
-    """
-    Fills missing values in the DataFrame using the specified method.
 
-    Args:
-        df (pd.DataFrame): The DataFrame with missing values.
-        method (str, optional): Method to use for filling missing values. Defaults to "mean".
-
-    Returns:
-        pd.DataFrame: DataFrame with missing values filled.
-    """
     logger.info(f"Filling missing values using method: {method}")
     try:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -166,14 +137,7 @@ def fill_missing_values(df: pd.DataFrame, method: str = "mean") -> pd.DataFrame:
 
 
 def distribution_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool = True) -> None:
-    """
-    Performs distribution analysis for numeric columns and visualizes them.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plots. Defaults to True.
-    """
     logger.info("Performing distribution analysis for numeric columns")
     try:
         for col in numeric_cols:
@@ -190,17 +154,7 @@ def distribution_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool 
 
 
 def scale_features(df: pd.DataFrame, numeric_cols: List[str], method: str = "standard") -> pd.DataFrame:
-    """
-    Scales numeric features using the specified scaling method.
 
-    Args:
-        df (pd.DataFrame): The DataFrame with numeric features.
-        numeric_cols (List[str]): List of numeric columns to scale.
-        method (str, optional): Scaling method to use ('standard' or 'minmax'). Defaults to "standard".
-
-    Returns:
-        pd.DataFrame: DataFrame with scaled features.
-    """
     logger.info(f"Scaling features: {numeric_cols} using method: {method}")
     try:
         scaler = StandardScaler() if method == "standard" else MinMaxScaler()
@@ -213,14 +167,7 @@ def scale_features(df: pd.DataFrame, numeric_cols: List[str], method: str = "sta
 
 
 def correlation_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool = True) -> None:
-    """
-    Performs and visualizes correlation analysis for numeric columns.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plot. Defaults to True.
-    """
     logger.info("Performing correlation analysis.")
     try:
         corr_matrix = df[numeric_cols].corr()
@@ -237,14 +184,7 @@ def correlation_analysis(df: pd.DataFrame, numeric_cols: List[str], save: bool =
 
 
 def detect_outliers(df: pd.DataFrame, numeric_cols: List[str], save: bool = True) -> None:
-    """
-    Detects and visualizes outliers in numeric columns using boxplots.
 
-    Args:
-        df (pd.DataFrame): The DataFrame to analyze.
-        numeric_cols (List[str]): List of numeric columns.
-        save (bool, optional): Whether to save the plots. Defaults to True.
-    """
     logger.info("Detecting outliers in numeric columns.")
     try:
         for col in numeric_cols:
@@ -261,13 +201,7 @@ def detect_outliers(df: pd.DataFrame, numeric_cols: List[str], save: bool = True
 
 
 def save_preprocessed_data(df: pd.DataFrame, filename: str = "epa_preprocessed.csv") -> None:
-    """
-    Saves the preprocessed DataFrame to the processed directory.
 
-    Args:
-        df (pd.DataFrame): The preprocessed DataFrame.
-        filename (str, optional): Name of the file to save. Defaults to "epa_preprocessed.csv".
-    """
     processed_file_path = PROCESSED_DIR / filename
     try:
         df.to_csv(processed_file_path, index=False)
@@ -278,13 +212,7 @@ def save_preprocessed_data(df: pd.DataFrame, filename: str = "epa_preprocessed.c
 
 
 def compare_missing_values_original_vs_processed(original_file_path: Path, processed_df: pd.DataFrame) -> None:
-    """
-    Compares missing values between the original and processed DataFrames.
 
-    Args:
-        original_file_path (Path): Path to the original DataFrame CSV.
-        processed_df (pd.DataFrame): The processed DataFrame.
-    """
     logger.info("Comparing missing values between original and processed data.")
     try:
         original_df = load_data(original_file_path)
@@ -295,9 +223,7 @@ def compare_missing_values_original_vs_processed(original_file_path: Path, proce
 
 
 def preprocess_data() -> None:
-    """
-    Main function to execute the data preprocessing pipeline.
-    """
+
     try:
         # Load data
         file_path = PROCESSED_DIR / "epa_long_preprocessed.csv"
