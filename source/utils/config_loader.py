@@ -1,5 +1,3 @@
-# source/utils/config_loader.py
-
 import yaml
 import logging
 
