@@ -1,7 +1,0 @@
-2024-12-31 14:10:06,298 - feature_engineering - INFO - Özellik ölçeklendirme başlıyor
-2024-12-31 14:10:06,300 - feature_engineering - INFO - Özellik ölçeklendirme başlıyor: ['feature1', 'feature2'], Yöntem: standard
-2024-12-31 14:10:06,302 - feature_engineering - ERROR - Hata: "None of [Index(['feature1', 'feature2'], dtype='object')] are in the [columns]"
-2024-12-31 14:10:11,946 - feature_engineering - INFO - Etkileşim terimi oluşturuluyor
-2024-12-31 14:10:11,948 - feature_engineering - INFO - Etkileşim terimi oluşturuluyor: feature1, feature2, İşlem: multiply
-2024-12-31 14:10:11,949 - feature_engineering - ERROR - Etkileşim terimi oluşturulurken hata: 'feature1'
-2024-12-31 14:10:17,128 - feature_engineering - INFO - Feature engineered veri kaydedildi: ../data/processed/epa_features.csv
