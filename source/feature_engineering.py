@@ -1,11 +1,7 @@
-# source/feature_engineering.py
-
+import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from pathlib import Path
-from typing import List, Union
-
-import pandas as pd
-
+from typing import List
 from source.utils.path_utils import add_source_to_sys_path
 from source.utils.logger import setup_logger
 
@@ -15,7 +11,7 @@ add_source_to_sys_path()
 # Setup logger
 logger = setup_logger(
     name="feature_engineering",
-    log_file=Path("../04-logs") / "feature_engineering.log",
+    log_file=str(Path("../logs") / "feature_engineering.log"),
     log_level="INFO"
 )
 
@@ -25,17 +21,7 @@ def scale_features(
         cols: List[str],
         method: str = "standard"
 ) -> pd.DataFrame:
-    """
-    Scales numeric features in the DataFrame using the specified method.
 
-    Args:
-        df (pd.DataFrame): The DataFrame containing the features to scale.
-        cols (List[str]): List of column names to scale.
-        method (str, optional): Scaling method ('standard' or 'minmax'). Defaults to "standard".
-
-    Returns:
-        pd.DataFrame: DataFrame with scaled features.
-    """
     logger.info(f"Starting feature scaling: {cols}, Method: {method}")
     try:
         if method == "standard":
