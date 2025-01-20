@@ -1,9 +1,11 @@
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from pathlib import Path
 from typing import List
-from source.utils.path_utils import add_source_to_sys_path
+from pathlib import Path
 from source.utils.logger import setup_logger
+from source.config.config_utils import config
+from source.utils.project_paths import ProjectPaths
+from source.utils.path_utils import add_source_to_sys_path
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # Add source to sys.path
 add_source_to_sys_path()
@@ -15,6 +17,9 @@ logger = setup_logger(
     log_level="INFO"
 )
 
+paths = ProjectPaths.from_config(config)
+
+paths.ensure_directories()
 
 def scale_features(
         df: pd.DataFrame,
