@@ -1,28 +1,11 @@
-"""
-advanced_cleanup.py
-
-Bu modül, EPA verilerinden (ör. SO2, NO2, O3, CO, PM2.5 gibi kirleticiler) elde edilen
-ham DataFrame’lerdeki verilerin ileri temizleme (advanced cleanup) aşamasını gerçekleştirir.
-İşlevselliğe örnek olarak:
-    - Nadiren kullanılan sütunların (POC, CBSA Code/Name, FIPS kodları) otomatik olarak atılması,
-    - Opsiyonel sütunların isteğe bağlı bırakılması veya çıkarılması,
-    - Yüksek korelasyonlu sütunların tespit edilip otomatik silinmesi,
-    - Aykırı değer (outlier) tespiti ve giderilmesi (IQR veya z‐skor yöntemi ile),
-kapsamlı veri hazırlama adımlarını içerir.
-
-Yazar: Your Name
-Tarih: 2025-01-12
-"""
-
-import pandas as pd
-import numpy as np
 import logging
+import numpy as np
+import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Literal
 
 logger = logging.getLogger("advanced_cleanup")
 
-# Belirlediğimiz nadiren kullanılan sütunları ve opsiyonel sütunları listeleyelim:
 RARELY_USED_COLUMNS: List[str] = [
     "POC",
     "CBSA Code", "CBSA Name",
@@ -46,31 +29,7 @@ def advanced_cleanup(
         outlier_method: Literal["none", "iqr", "zscore"] = "none",
         save_path: Optional[Path] = None
 ) -> pd.DataFrame:
-    """
-    Uygulanan ileri temizlik işlemleri:
-      1) Nadiren kullanılan sütunların silinmesi,
-      2) Opsiyonel sütunların isteğe bağlı olarak çıkarılması,
-      3) Yüksek korelasyonlu sütunların otomatik olarak atılması,
-      4) Aykırı değerlerin (outlier) tespiti ve giderilmesi (IQR veya z‑skor yöntemi),
-      5) Sonuç olarak temizlenmiş DataFrame’in kaydedilmesi (opsiyonel).
 
-    Args:
-        df (pd.DataFrame): EPA veri seti (örneğin, SO2, NO2, O3, CO, PM2.5).
-        pollutant (str): Verinin ait olduğu kirletici (ör. "so2", "no2", "co", "o3", "pm25").
-        remove_rarely_used (bool, optional): RARELY_USED_COLUMNS’da belirtilen sütunların atılıp atılmayacağı.
-                                             Defaults to True.
-        drop_optional (bool, optional): OPTIONAL_COLUMNS’da belirtilen sütunların çıkarılıp çıkarılmayacağı.
-                                        Defaults to False.
-        correlation_threshold (float, optional): (0, 1) aralığında bir eşik; bu değerin altında olan
-                                                   sütun çiftleri yüksek korelasyonlu kabul edilip, fazlası atılır.
-                                                   Defaults to 1.0 (yani sıfır atma).
-        outlier_method (Literal["none", "iqr", "zscore"], optional): Uygulanacak outlier (aykırı değer) yöntemi.
-                                                                     Defaults to "none".
-        save_path (Optional[Path], optional): Son temizlenmiş DataFrame CSV'sinin kaydedileceği yol.
-
-    Returns:
-        pd.DataFrame: Temizlenmiş DataFrame.
-    """
     logger.info(f"=== Advanced Cleanup for pollutant='{pollutant}', original shape={df.shape} ===")
     df_clean = df.copy()
     init_shape = df_clean.shape
@@ -120,17 +79,7 @@ def advanced_cleanup(
 
 
 def drop_highly_correlated(df: pd.DataFrame, threshold: float = 0.95) -> pd.DataFrame:
-    """
-    Sayısal sütunlar arasında korelasyon matrisini hesaplar ve threshold değerinin üstünde korelasyona sahip sütunları kaldırır.
-    İki sütun yüksek korelasyonda ise yalnızca birini tutar.
 
-    Args:
-        df (pd.DataFrame): Temizlenecek DataFrame.
-        threshold (float, optional): Kaldırma eşik değeri. Defaults to 0.95.
-
-    Returns:
-        pd.DataFrame: Korelasyon bazlı sütun kaldırmasından geçmiş DataFrame.
-    """
     logger.info(f"Computing correlation matrix and dropping columns with correlation > {threshold}")
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     if len(numeric_cols) < 2:
@@ -148,16 +97,7 @@ def drop_highly_correlated(df: pd.DataFrame, threshold: float = 0.95) -> pd.Data
 
 
 def remove_outliers_iqr(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame:
-    """
-    IQR yöntemi ile aykırı değer tespit edip, aykırı değer bulunan satırları kaldırır.
 
-    Args:
-        df (pd.DataFrame): DataFrame.
-        numeric_cols (List[str]): İncelenecek sayısal sütunlar.
-
-    Returns:
-        pd.DataFrame: Aykırı değerleri kaldırılmış DataFrame.
-    """
     logger.debug("Removing outliers using IQR method.")
     df_clean = df.copy()
     for col in numeric_cols:
@@ -171,17 +111,7 @@ def remove_outliers_iqr(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFra
 
 
 def remove_outliers_zscore(df: pd.DataFrame, numeric_cols: List[str], z_thresh: float = 3.0) -> pd.DataFrame:
-    """
-    Z-score yöntemi ile aykırı değerleri tespit edip, aykırı değer bulunan satırları kaldırır.
 
-    Args:
-        df (pd.DataFrame): DataFrame.
-        numeric_cols (List[str]): İncelenecek sayısal sütunlar.
-        z_thresh (float, optional): Z-score eşiği. Defaults to 3.0.
-
-    Returns:
-        pd.DataFrame: Aykırı değerler çıkarılmış DataFrame.
-    """
     logger.debug("Removing outliers using Z-score method.")
     from scipy.stats import zscore
     df_clean = df.copy()
