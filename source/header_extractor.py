@@ -8,11 +8,10 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def extract_headers(raw_dir: Path, output_csv: Path):
-
+def extract_headers(input_dir: Path, output_file: Path):
     header_rows = []
 
-    csv_files = list(raw_dir.rglob("*.csv"))
+    csv_files = list(input_dir.rglob("*.csv"))
     for csv_path in csv_files:
         file_name = csv_path.name
         try:
@@ -29,13 +28,12 @@ def extract_headers(raw_dir: Path, output_csv: Path):
         })
 
     # Ensure the output directory exists
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Save the headers to a CSV file
     df_headers = pd.DataFrame(header_rows)
-    # Save the columns as string
-    df_headers.to_csv(output_csv, index=False)
-    logger.info(f"Headers saved to {output_csv}")
+    df_headers.to_csv(output_file, index=False)
+    logger.info(f"Headers saved to {output_file}")
 
 def get_pollutant(file_name: str) -> str:
 
