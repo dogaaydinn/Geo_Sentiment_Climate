@@ -2,27 +2,30 @@ import os
 import glob
 import pandas as pd
 from datetime import datetime
+from source.config.config_utils import config
 from source.utils.logger import setup_logger
-from source.utils.config_loader import load_config
 from typing import List, Tuple, Dict, Any, Optional
-from source.utils.path_utils import add_source_to_sys_path
-
-CONFIG_PATH = os.path.join(os.path.abspath("../config"), "settings.yml")
-config = load_config(CONFIG_PATH)
+from source.utils.project_paths import ProjectPaths
+from source.config.config_loader import check_required_keys
+from source.utils.path_initializer import add_source_to_sys_path
 
 add_source_to_sys_path()
 
-REQUIRED_KEYS = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
-missing_keys = [key for key in REQUIRED_KEYS if key not in config.get("paths", {})]
-if missing_keys:
-    raise KeyError(f"Missing required config keys: {missing_keys}")
-
-RAW_DIR = os.path.abspath(config["paths"]["raw_dir"])
 logger = setup_logger(
-    name="merge_pollutants",
-    log_file=os.path.join(config["paths"]["logs_dir"], "merge_pollutants.log"),
+    name="data_check",
+    log_file=os.path.join(config["paths"]["logs_dir"], "data_check.log"),
     log_level=config.get("logging", {}).get("level", "INFO").upper()
 )
+
+REQUIRED_KEYS = ["raw_dir", "interim_dir", "processed_dir", "archive_dir", "metadata_dir", "logs_dir"]
+check_required_keys(config, REQUIRED_KEYS)
+
+paths = ProjectPaths.from_config(config)
+
+paths.ensure_directories()
+
+print(paths.raw_dir)
+
 
 # -----------------------------------------------------------------------------
 # methods
@@ -56,7 +59,7 @@ def load_csv(filepath: str, nrows: Optional[int] = None, sampling_ratio: float =
         return df
 
     df = pd.read_csv(filepath)
-    if sampling_ratio > 0 and sampling_ratio < 1:
+    if 0 < sampling_ratio < 1:
         df = df.sample(frac=sampling_ratio, random_state=42)
         logger.debug(f"Sampled {len(df)} rows from {filepath} using ratio={sampling_ratio}")
     return df
@@ -74,14 +77,12 @@ def generate_report(report_rows: List[Dict[str, Any]], processed_dir: str) -> st
     os.makedirs(processed_dir, exist_ok=True)
     output_path = os.path.join(processed_dir, report_name)
 
-    # Sözlük alanları (ör: missing_values) için string'e dönüştürme
     if "missing_values" in df_report.columns:
         df_report["missing_values"] = df_report["missing_values"].apply(lambda x: str(x) if isinstance(x, dict) else x)
 
     df_report.to_csv(output_path, index=False)
     logger.info(f"Data check report created at {output_path}")
     return output_path
-
 
 def validate_required_optional_columns(
     df: pd.DataFrame,
@@ -98,8 +99,7 @@ def validate_required_optional_columns(
 def validate_column_types(df, column_types_map: Dict[str, List[str]]):
     errors = {}
     for dtype_name, cols_list in column_types_map.items():
-        # dtype_name => "datetime", "float", "int", "string"
-        # cols_list => ["Date", "Daily AQI Value", ...]
+
         for col in cols_list:
             if col not in df.columns:
                 continue
@@ -113,37 +113,51 @@ def validate_column_types(df, column_types_map: Dict[str, List[str]]):
                     if not pd.api.types.is_integer_dtype(df[col]):
                         errors[col] = "Should be integer(int)"
                 elif dtype_name == "string":
-                    # opsiyonel
                     pass
             except Exception as e:
                 errors[col] = f"Type check failed: {e}"
-    return (len(errors) == 0, errors)
+    return len(errors) == 0, errors
 
+def process_chunk(chunk_df, required_cols, optional_cols, column_types_map, row_info, file_name):
+    req_ok, missing_req, missing_opt = validate_required_optional_columns(chunk_df, required_cols, optional_cols)
+    if not req_ok:
+        row_info["test_pass"] = False
+        row_info["missing_req_cols"] = missing_req
+        row_info["notes"] += f"Missing required columns: {missing_req}. "
+    if missing_opt:
+        row_info["missing_opt_cols"] = missing_opt
+        logger.info(f"[OptionalMissing] {file_name} missing optional: {missing_opt}")
+
+    type_ok, dtype_err = validate_column_types(chunk_df, column_types_map)
+    if not type_ok:
+        row_info["test_pass"] = False
+        row_info["dtype_issues"] = dtype_err
+        row_info["notes"] += f"Dtype issues: {dtype_err}. "
+
+    row_info["col_count"] = len(chunk_df.columns)
+    row_info["columns"] = ", ".join(chunk_df.columns.tolist())
+    return row_info
 # -----------------------------------------------------------------------------
-# check_raw_data (Ana Fonksiyon)
+# check_raw_data (main)
 # -----------------------------------------------------------------------------
 
-def check_raw_data(raw_dir: str = RAW_DIR) -> None:
+def check_raw_data():
 
     logger.info("=== Starting advanced data check ===")
 
-    # data_check altındaki numeric parametreler
     data_check_cfg = config.get("data_check", {})
     chunk_size_threshold = data_check_cfg.get("chunk_size_threshold", 0)
     chunk_size = data_check_cfg.get("chunk_size", 100000)
     sampling_ratio = data_check_cfg.get("sampling_ratio", 0.0)
     quick_check_limit = data_check_cfg.get("quick_check_limit", 5)
 
-    # "column_types" -> dict, sadece "Date": "datetime" gibi
     column_types_map = data_check_cfg.get("column_types", {})
-    # pollutant bazlı columns
+
     columns_config = config.get("columns", {})
 
-    # max_rows_read -> int
     max_rows_read = data_check_cfg.get("max_rows_read", 5000)
 
-    # CSV'leri bul
-    csv_files = find_csv_files(raw_dir)
+    csv_files = find_csv_files(config["paths"]["raw_dir"])
     if not csv_files:
         logger.warning("No CSV files found in the specified directory. Terminating data check.")
         return
@@ -154,7 +168,6 @@ def check_raw_data(raw_dir: str = RAW_DIR) -> None:
         file_name = os.path.basename(csv_path)
         pollutant = get_pollutant_from_filename(file_name)
 
-        # Pollutant config
         poll_config = columns_config.get(pollutant, {})
         all_cols = poll_config.get("all_columns", [])
         common_cols = poll_config.get("common_columns", [])
@@ -190,29 +203,8 @@ def check_raw_data(raw_dir: str = RAW_DIR) -> None:
                 for chunk_df in load_csv_in_chunks(csv_path, chunk_size=chunk_size):
                     chunk_idx += 1
                     if chunk_idx == 1:
-                        # Required/optional
-                        req_ok, missing_req, missing_opt = validate_required_optional_columns(
-                            chunk_df, required_cols, optional_cols
-                        )
-                        if not req_ok:
-                            row_info["test_pass"] = False
-                            row_info["missing_req_cols"] = missing_req
-                            row_info["notes"] += f"Missing required columns: {missing_req}. "
-                        if missing_opt:
-                            row_info["missing_opt_cols"] = missing_opt
-                            logger.info(f"[OptionalMissing] {file_name} missing optional: {missing_opt}")
+                        row_info = process_chunk(chunk_df, required_cols, optional_cols, column_types_map, row_info, file_name)
 
-                        # Tip check
-                        type_ok, dtype_err = validate_column_types(chunk_df, column_types_map)
-                        if not type_ok:
-                            row_info["test_pass"] = False
-                            row_info["dtype_issues"] = dtype_err
-                            row_info["notes"] += f"Dtype issues: {dtype_err}. "
-
-                        row_info["col_count"] = len(chunk_df.columns)
-                        row_info["columns"] = ", ".join(chunk_df.columns.tolist())
-
-                    # Eksik değer hesapla
                     chunk_missing = chunk_df.isnull().sum()
                     if total_missing is None:
                         total_missing = chunk_missing
@@ -226,7 +218,7 @@ def check_raw_data(raw_dir: str = RAW_DIR) -> None:
                     row_info["missing_values"] = total_missing.to_dict()
 
             else:
-                # Tek seferde ( örnekleme / max_rows_read ) okuma
+
                 if max_rows_read and max_rows_read > 0:
                     df = load_csv(csv_path, nrows=max_rows_read)
                 else:
@@ -238,23 +230,7 @@ def check_raw_data(raw_dir: str = RAW_DIR) -> None:
                     row_info["test_pass"] = False
                     row_info["notes"] = "File is completely empty."
                 else:
-                    req_ok, missing_req, missing_opt = validate_required_optional_columns(
-                        df, required_cols, optional_cols
-                    )
-                    if not req_ok:
-                        row_info["test_pass"] = False
-                        row_info["missing_req_cols"] = missing_req
-                        row_info["notes"] += f"Missing required columns: {missing_req}. "
-
-                    if missing_opt:
-                        row_info["missing_opt_cols"] = missing_opt
-                        logger.info(f"[OptionalMissing] {file_name} missing optional: {missing_opt}")
-
-                    type_ok, dtype_err = validate_column_types(df, column_types_map)
-                    if not type_ok:
-                        row_info["test_pass"] = False
-                        row_info["dtype_issues"] = dtype_err
-                        row_info["notes"] += f"Dtype issues: {dtype_err}. "
+                    row_info = process_chunk(df, required_cols, optional_cols, column_types_map, row_info, file_name)
 
                     row_info["row_count"] = df.shape[0]
                     row_info["col_count"] = df.shape[1]
