@@ -1,5 +1,5 @@
 import pytest
-from source.utils.config_loader import load_config
+from source.config.config_loader import load_config
 
 @pytest.fixture
 def config_path():
