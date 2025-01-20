@@ -282,6 +282,12 @@ paths:
   plots_dir: ../plots/
   processed_dir: ../data/processed/
   raw_dir: ../data/raw/
+
+# Opsiyonel: Dosya türlerine özel yollar
+file_specific_paths:
+  data_check:
+    raw_dir: "../data/raw_data_check"
+    processed_dir: "../data/processed_data_check"
 project_name: Geo_Sentiment_Climate
 rename_map_common:
   County FIPS Code: county_fips
