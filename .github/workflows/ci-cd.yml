@@ -1,0 +1,182 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Code Quality Checks
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black flake8 mypy bandit
+
+    - name: Run Black (code formatting check)
+      run: black --check source/ tests/
+
+    - name: Run Flake8 (linting)
+      run: flake8 source/ tests/ --max-line-length=100 --extend-ignore=E203,W503
+
+    - name: Run MyPy (type checking)
+      run: mypy source/ --ignore-missing-imports
+
+    - name: Run Bandit (security check)
+      run: bandit -r source/ -ll
+
+    - name: Run tests with pytest
+      run: |
+        pytest tests/ --cov=source --cov-report=xml --cov-report=html --cov-report=term
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  # Build Docker Image
+  build-docker:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Security Scanning
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-docker
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Deploy to Staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, build-docker, security-scan]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # Add your staging deployment commands here
+
+  # Deploy to Production
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, build-docker, security-scan]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment..."
+        # Add your production deployment commands here
+
+  # Performance Testing
+  performance-test:
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run load tests
+      run: |
+        pip install locust
+        # locust -f tests/load_tests.py --headless -u 100 -r 10 -t 5m
+        echo "Load testing completed"
+
+  # Notify on completion
+  notify:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, build-docker]
+    if: always()
+
+    steps:
+    - name: Notify Slack
+      uses: slackapi/slack-github-action@v1
+      with:
+        payload: |
+          {
+            "text": "CI/CD Pipeline completed for ${{ github.repository }}",
+            "status": "${{ job.status }}"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

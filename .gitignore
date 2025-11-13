@@ -1,0 +1,471 @@
+# =============================================================================
+# Geo_Sentiment_Climate - Comprehensive .gitignore
+# =============================================================================
+
+# Operating System Files
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Python
+# =============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-wheel-metadata/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environments
+# =============================================================================
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+env.bak/
+venv.bak/
+pyvenv.cfg
+pip-selfcheck.json
+
+# Conda
+.conda/
+conda-meta/
+
+# IDEs & Editors
+# =============================================================================
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+out/
+
+# VSCode
+.vscode/
+*.code-workspace
+.history/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+\#*\#
+.\#*
+
+# Jupyter Notebook
+# =============================================================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+*.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# JupyterLab
+.jupyter/
+
+# IPython
+.ipython/
+
+# Data Files
+# =============================================================================
+# Raw data (large datasets)
+data/raw/**/*.csv
+data/raw/**/*.xlsx
+data/raw/**/*.xls
+data/raw/**/*.parquet
+data/raw/**/*.feather
+data/raw/**/*.json
+data/raw/**/*.xml
+data/raw/**/*.zip
+data/raw/**/*.gz
+data/raw/**/*.tar
+data/raw/**/*.7z
+data/raw/**/*.rar
+
+# Interim data (temporary processing)
+data/interim/**/*.csv
+data/interim/**/*.parquet
+data/interim/**/*.feather
+
+# Processed data (except small examples)
+data/processed/**/*.csv
+data/processed/**/*.parquet
+data/processed/**/*.feather
+
+# Keep example/sample data
+!data/**/sample_*.csv
+!data/**/example_*.csv
+
+# Archive data
+data/archive/
+
+# Metadata
+data/metadata/*.json
+data/metadata/*.db
+data/metadata/*.sqlite
+
+# Large binary files
+*.h5
+*.hdf5
+*.nc
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# Logs
+# =============================================================================
+logs/
+*.log
+*.log.*
+log/
+*.out
+*.err
+
+# ML Models & Artifacts
+# =============================================================================
+# Trained models
+models/**/*.pkl
+models/**/*.h5
+models/**/*.hdf5
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.pb
+models/**/*.onnx
+models/**/*.joblib
+models/**/*.model
+models/**/*.bin
+
+# Keep model configs
+!models/**/*.yaml
+!models/**/*.yml
+!models/**/*.json
+
+# MLflow
+mlruns/
+mlflow_data/
+mlartifacts/
+
+# Weights & Biases
+wandb/
+artifacts/
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+.dvc/plots/
+
+# TensorBoard
+tensorboard_logs/
+runs/
+lightning_logs/
+
+# Plots & Visualizations
+# =============================================================================
+plots/**/*.png
+plots/**/*.jpg
+plots/**/*.jpeg
+plots/**/*.svg
+plots/**/*.pdf
+
+# Keep plot templates
+!plots/**/*_template.*
+
+# Reports
+reports/**/*.html
+reports/**/*.pdf
+
+# Testing
+# =============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.cover
+*.py,cover
+.cache
+nosetests.xml
+coverage/
+junit/
+test-results/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Documentation
+# =============================================================================
+docs/_build/
+docs/_static/
+docs/_templates/
+site/
+.doctrees/
+*.rst~
+
+# Sphinx
+docs/source/_build/
+docs/build/
+
+# MkDocs
+docs/site/
+
+# Database
+# =============================================================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# PostgreSQL
+*.pgdata
+
+# MongoDB
+data/db/
+
+# Redis
+dump.rdb
+appendonly.aof
+
+# Secrets & Credentials
+# =============================================================================
+.env
+.env.*
+!.env.example
+!.env.template
+.envrc
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+credentials.yml
+credentials.yaml
+credentials.json
+secrets.yml
+secrets.yaml
+secrets.json
+config/credentials.yml
+config/secrets.yml
+*.credentials
+.aws/
+.azure/
+.gcp/
+
+# API Keys
+*_api_key.txt
+*_secret.txt
+*_token.txt
+
+# Cloud & Infrastructure
+# =============================================================================
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+*-secret.yaml
+
+# Airflow
+# =============================================================================
+airflow.db
+airflow.cfg
+airflow_logs/
+dags/__pycache__/
+logs/
+airflow-worker.pid
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# Celery
+# =============================================================================
+celerybeat-schedule
+celerybeat.pid
+
+# Cache
+# =============================================================================
+.cache/
+*.cache
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.tox/
+__pypackages__/
+
+# Temporary Files
+# =============================================================================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+tmp/
+temp/
+.temp/
+
+# Profiling
+# =============================================================================
+*.prof
+*.lprof
+*.pstats
+
+# Build artifacts
+# =============================================================================
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Misc
+# =============================================================================
+# Pickle files (can contain sensitive data)
+*.pkl
+*.pickle
+
+# Compressed archives
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Large files
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# Node (if using frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+
+# Mac Finder
+.DS_Store
+
+# Project Specific
+# =============================================================================
+# Processed outputs
+output/
+results/
+exports/
+
+# Checkpoints
+checkpoints/
+saved_models/
+
+# Benchmark results
+benchmarks/
+
+# Experimental
+experiments/
+sandbox/
+scratch/
+
+# Keep important files
+# =============================================================================
+!.gitkeep
+!README.md
+!LICENSE
+!requirements.txt
+!setup.py
+!pyproject.toml
+!Dockerfile
+!docker-compose.yml
+!.github/
+!.pre-commit-config.yaml

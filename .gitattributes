@@ -1,0 +1,196 @@
+# =============================================================================
+# Geo_Sentiment_Climate - Git Attributes Configuration
+# =============================================================================
+
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Source code
+*.py text eol=lf diff=python
+*.pyx text eol=lf diff=python
+*.pxd text eol=lf
+*.pyi text eol=lf diff=python
+*.ipynb text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.fish text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Configuration files
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.config text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+
+# Environment files
+.env* text eol=lf
+*.env text eol=lf
+
+# Documentation
+*.md text eol=lf diff=markdown
+*.rst text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+README* text eol=lf
+CHANGELOG* text eol=lf
+CONTRIBUTING* text eol=lf
+
+# Web files
+*.html text eol=lf diff=html
+*.css text eol=lf diff=css
+*.scss text eol=lf
+*.sass text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+
+# Templates
+*.j2 text eol=lf
+*.jinja text eol=lf
+*.jinja2 text eol=lf
+*.tpl text eol=lf
+
+# Docker
+Dockerfile* text eol=lf
+*.dockerignore text eol=lf
+docker-compose*.yml text eol=lf
+
+# CI/CD
+.gitlab-ci.yml text eol=lf
+.travis.yml text eol=lf
+.circleci/* text eol=lf
+.github/**/* text eol=lf
+Jenkinsfile text eol=lf
+
+# Data files - treat as binary to avoid corruption
+*.csv binary
+*.tsv binary
+*.parquet binary
+*.feather binary
+*.arrow binary
+*.hdf5 binary
+*.h5 binary
+*.nc binary
+*.xlsx binary
+*.xls binary
+
+# Serialized data
+*.pkl binary
+*.pickle binary
+*.joblib binary
+*.npy binary
+*.npz binary
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+*.eps binary
+*.pdf binary
+*.ai binary
+*.psd binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.bz2 binary
+*.7z binary
+*.rar binary
+
+# Fonts
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Video
+*.mp4 binary
+*.mov binary
+*.avi binary
+*.mkv binary
+
+# Audio
+*.mp3 binary
+*.wav binary
+*.flac binary
+*.ogg binary
+
+# Model files
+*.h5 binary
+*.hdf5 binary
+*.pb binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.onnx binary
+*.tflite binary
+*.model binary
+*.bin binary
+
+# Database files
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+
+# Compiled files
+*.pyc binary
+*.pyo binary
+*.so binary
+*.dll binary
+*.dylib binary
+*.exe binary
+
+# Jupyter notebooks - use nbdime for better diffs
+*.ipynb text eol=lf diff=jupyternotebook merge=jupyternotebook
+
+# Exclude files from exporting
+.gitattributes export-ignore
+.gitignore export-ignore
+.github export-ignore
+tests/ export-ignore
+docs/ export-ignore
+*.md export-ignore
+Makefile export-ignore
+.pre-commit-config.yaml export-ignore
+
+# Diff settings
+*.lock linguist-generated=true
+package-lock.json linguist-generated=true
+yarn.lock linguist-generated=true
+
+# Mark vendored code
+vendor/* linguist-vendored
+
+# Language statistics (for GitHub)
+*.ipynb linguist-documentation
+*.md linguist-documentation
+*.rst linguist-documentation
+notebooks/* linguist-documentation
+docs/* linguist-documentation
+
+# Large file storage (LFS) - if needed
+# *.csv filter=lfs diff=lfs merge=lfs -text
+# *.parquet filter=lfs diff=lfs merge=lfs -text
+# *.h5 filter=lfs diff=lfs merge=lfs -text
+# *.hdf5 filter=lfs diff=lfs merge=lfs -text
+# *.pkl filter=lfs diff=lfs merge=lfs -text
+# *.model filter=lfs diff=lfs merge=lfs -text
