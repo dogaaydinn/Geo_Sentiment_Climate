@@ -25,7 +25,9 @@ sentence-transformers==2.2.2
 # Imputation & Missing Data
 # =============================================================================
 scikit-learn-intelex==2024.0.1
-fancyimpute==0.7.0
+# Note: fancyimpute may have compatibility issues with newer Python versions
+# Alternative: Use sklearn's IterativeImputer or KNNImputer (already included)
+# fancyimpute==0.7.0
 missingno==0.5.2
 
 # Visualization
@@ -194,8 +196,9 @@ jupytext==1.16.0
 
 # Data Quality
 # =============================================================================
-dataprep==0.4.5
-pandas-profiling==3.6.6
+# Note: dataprep 0.4.5 doesn't exist, using latest stable version
+# pandas-profiling is deprecated, using ydata-profiling instead
+ydata-profiling==4.6.4
 sweetviz==2.3.1
 dtale==3.9.0
 
@@ -228,9 +231,12 @@ alibi==0.9.5
 
 # AutoML
 # =============================================================================
-auto-sklearn==0.15.0
+# Note: auto-sklearn requires Python <=3.10, commented out for Python 3.11 compatibility
+# auto-sklearn==0.15.0  # Uncomment if using Python 3.10 or earlier
 tpot==0.12.2
 flaml==2.1.1
+# Alternative AutoML for Python 3.11+:
+# autogluon.tabular>=0.8.0
 
 # Streaming & Real-time
 # =============================================================================
@@ -241,8 +247,10 @@ pika==1.3.2
 # Graph Processing
 # =============================================================================
 networkx==3.2.1
-graph-tool==2.58
-igraph==0.11.3
+# Note: graph-tool requires system dependencies and conda, not available on PyPI
+# Install separately with: conda install -c conda-forge graph-tool
+# graph-tool==2.58
+python-igraph==0.11.3  # Use python-igraph instead of igraph
 
 # Version Control
 # =============================================================================

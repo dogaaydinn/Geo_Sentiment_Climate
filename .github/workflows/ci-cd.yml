@@ -171,6 +171,8 @@ jobs:
 
     steps:
     - name: Notify Slack
+      # Only run if Slack webhook is configured
+      if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
       uses: slackapi/slack-github-action@v1
       with:
         payload: |
@@ -180,3 +182,7 @@ jobs:
           }
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Skip Slack notification (webhook not configured)
+      if: ${{ secrets.SLACK_WEBHOOK_URL == '' }}
+      run: echo "⚠️ SLACK_WEBHOOK_URL not configured; skipping Slack notification. To enable, add the secret in repository settings."
