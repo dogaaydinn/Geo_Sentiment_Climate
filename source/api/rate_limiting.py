@@ -11,7 +11,7 @@ Implements:
 Part of Week 4 Day 3: Rate Limiting Implementation
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Tuple
 from fastapi import HTTPException, Request, Depends, status
 from redis import asyncio as aioredis
