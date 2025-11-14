@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: geo-climate
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - serviceaccount.yaml
+  - pvc.yaml
+  - deployment-api.yaml
+  - service-api.yaml
+  - statefulset-postgres.yaml
+  - statefulset-redis.yaml
+  - hpa.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: geo-climate
+  app.kubernetes.io/version: "2.0.0"
+  app.kubernetes.io/managed-by: kustomize

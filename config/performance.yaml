@@ -1,0 +1,103 @@
+# Performance Optimization Configuration
+# Part of Phase 3: Scaling & Optimization
+
+# Model Optimization
+model_optimization:
+  # ONNX Conversion
+  onnx:
+    enabled: true
+    opset_version: 13
+    optimization_level: "all"  # basic, extended, all
+
+  # Quantization
+  quantization:
+    enabled: true
+    bits: 8  # 8 or 16
+
+  # Model Pruning
+  pruning:
+    enabled: false
+    sparsity: 0.3
+
+# Caching Strategy
+caching:
+  # Redis Cache
+  redis:
+    enabled: true
+    ttl: 3600  # 1 hour
+    max_memory: "1gb"
+    eviction_policy: "allkeys-lru"
+
+  # Model Cache
+  model_cache:
+    enabled: true
+    max_models: 5
+    preload_production: true
+
+  # Prediction Cache
+  prediction_cache:
+    enabled: true
+    ttl: 300  # 5 minutes
+    max_size: 10000
+
+# Database Optimization
+database:
+  # Connection Pool
+  pool:
+    min_size: 5
+    max_size: 20
+    timeout: 30
+
+  # Query Optimization
+  query:
+    use_prepared_statements: true
+    batch_size: 1000
+
+  # Indexing
+  indexes:
+    - table: "predictions"
+      columns: ["model_id", "created_at"]
+    - table: "models"
+      columns: ["stage", "created_at"]
+
+# API Performance
+api:
+  # Workers
+  workers: 4
+  worker_class: "uvicorn.workers.UvicornWorker"
+
+  # Timeouts
+  timeout: 30
+  keepalive: 5
+
+  # Compression
+  gzip:
+    enabled: true
+    minimum_size: 1000
+    compression_level: 6
+
+  # Rate Limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000
+    burst: 100
+
+# Batch Processing
+batch_processing:
+  default_batch_size: 1000
+  max_batch_size: 10000
+  parallel_workers: 4
+
+# Monitoring
+monitoring:
+  # Metrics Collection
+  metrics:
+    enabled: true
+    interval: 10  # seconds
+
+  # Performance Targets
+  targets:
+    api_latency_p95_ms: 100
+    api_latency_p99_ms: 200
+    inference_latency_ms: 50
+    throughput_rps: 10000

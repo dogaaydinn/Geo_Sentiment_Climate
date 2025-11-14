@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: geo-climate
+  labels:
+    name: geo-climate
+    environment: production
