@@ -1,0 +1,190 @@
+# Default values for geo-climate
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  namespace: geo-climate
+
+# Application configuration
+app:
+  name: geo-climate
+  version: "2.0.0"
+
+# API deployment
+api:
+  replicaCount: 3
+
+  image:
+    repository: ghcr.io/dogaaydinn/geo_sentiment_climate
+    tag: latest
+    pullPolicy: Always
+
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8000
+    metricsPort: 9090
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+# PostgreSQL database
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 15-alpine
+
+  auth:
+    database: geo_climate
+    username: postgres
+    password: change-me-in-production
+
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: standard-rwo
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+# Redis cache
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: standard-rwo
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+  auth:
+    enabled: false
+
+# Persistent storage
+persistence:
+  models:
+    enabled: true
+    size: 50Gi
+    storageClass: standard-rwo
+    accessMode: ReadWriteMany
+
+  data:
+    enabled: true
+    size: 100Gi
+    storageClass: standard-rwo
+    accessMode: ReadWriteMany
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  hosts:
+    - host: api.geo-climate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: geo-climate-tls
+      hosts:
+        - api.geo-climate.example.com
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: geo-climate-sa
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Configuration
+config:
+  logLevel: INFO
+  apiWorkers: 4
+  modelRegistryPath: /models
+  modelCacheSize: 5
+
+# Secrets (override in production)
+secrets:
+  jwtSecretKey: "change-me-in-production"
+  defaultApiKey: "change-me-in-production"
+
+# Monitoring
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+
+  grafana:
+    enabled: false
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - geo-climate
+          topologyKey: kubernetes.io/hostname

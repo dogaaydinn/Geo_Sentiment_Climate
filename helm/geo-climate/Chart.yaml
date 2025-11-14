@@ -1,0 +1,28 @@
+apiVersion: v2
+name: geo-climate
+description: Geo Sentiment Climate - Air Quality Prediction Platform
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - machine-learning
+  - air-quality
+  - prediction
+  - fastapi
+  - kubernetes
+
+home: https://github.com/dogaaydinn/Geo_Sentiment_Climate
+sources:
+  - https://github.com/dogaaydinn/Geo_Sentiment_Climate
+
+maintainers:
+  - name: Doğa Aydın
+    email: dogaa882@gmail.com
+    url: https://linkedin.com/in/dogaaydin
+
+dependencies: []
+
+annotations:
+  category: Analytics
+  licenses: Apache-2.0
