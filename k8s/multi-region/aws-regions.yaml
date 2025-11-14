@@ -1,0 +1,55 @@
+# Multi-Region Deployment Configuration for AWS
+# Part of Phase 3: Scaling & Optimization - Global Infrastructure
+
+---
+# US-EAST-1 (Primary)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-config-us-east-1
+  namespace: geo-climate
+data:
+  REGION: "us-east-1"
+  REGION_NAME: "US East (N. Virginia)"
+  PRIMARY_REGION: "true"
+  REPLICA_REGIONS: "us-west-2,eu-west-1,ap-southeast-1"
+  CDN_ENDPOINT: "https://d123456.cloudfront.net"
+
+---
+# US-WEST-2 (Replica)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-config-us-west-2
+  namespace: geo-climate
+data:
+  REGION: "us-west-2"
+  REGION_NAME: "US West (Oregon)"
+  PRIMARY_REGION: "false"
+  PRIMARY_REGION_ENDPOINT: "https://api-us-east-1.geo-climate.com"
+
+---
+# EU-WEST-1 (Replica)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-config-eu-west-1
+  namespace: geo-climate
+data:
+  REGION: "eu-west-1"
+  REGION_NAME: "EU (Ireland)"
+  PRIMARY_REGION: "false"
+  PRIMARY_REGION_ENDPOINT: "https://api-us-east-1.geo-climate.com"
+
+---
+# AP-SOUTHEAST-1 (Replica)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-config-ap-southeast-1
+  namespace: geo-climate
+data:
+  REGION: "ap-southeast-1"
+  REGION_NAME: "Asia Pacific (Singapore)"
+  PRIMARY_REGION: "false"
+  PRIMARY_REGION_ENDPOINT: "https://api-us-east-1.geo-climate.com"

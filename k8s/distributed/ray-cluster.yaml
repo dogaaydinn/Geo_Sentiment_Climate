@@ -1,0 +1,161 @@
+# Ray Cluster for Distributed Training
+# Part of Phase 3: Scaling & Optimization - Distributed Systems
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-sa
+  namespace: geo-climate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-role
+  namespace: geo-climate
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-rolebinding
+  namespace: geo-climate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ray-role
+subjects:
+- kind: ServiceAccount
+  name: ray-sa
+  namespace: geo-climate
+---
+# Ray Head Node
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ray-head
+  namespace: geo-climate
+  labels:
+    component: ray-head
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: ray-head
+  template:
+    metadata:
+      labels:
+        component: ray-head
+    spec:
+      serviceAccountName: ray-sa
+      containers:
+      - name: ray-head
+        image: rayproject/ray:2.7.0-py310
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --block
+        ports:
+        - containerPort: 6379
+          name: gcs
+        - containerPort: 8265
+          name: dashboard
+        - containerPort: 10001
+          name: client
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+        env:
+        - name: RAY_REDIS_ADDRESS
+          value: "ray-head-service:6379"
+---
+# Ray Head Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-head-service
+  namespace: geo-climate
+spec:
+  selector:
+    component: ray-head
+  ports:
+  - name: gcs
+    port: 6379
+    targetPort: 6379
+  - name: dashboard
+    port: 8265
+    targetPort: 8265
+  - name: client
+    port: 10001
+    targetPort: 10001
+  type: ClusterIP
+---
+# Ray Worker Nodes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ray-worker
+  namespace: geo-climate
+  labels:
+    component: ray-worker
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      component: ray-worker
+  template:
+    metadata:
+      labels:
+        component: ray-worker
+    spec:
+      serviceAccountName: ray-sa
+      containers:
+      - name: ray-worker
+        image: rayproject/ray:2.7.0-py310
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          ray start --address=ray-head-service:6379 --block
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+          limits:
+            memory: "16Gi"
+            cpu: "8"
+        env:
+        - name: RAY_ADDRESS
+          value: "ray-head-service:6379"
+---
+# Horizontal Pod Autoscaler for Workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ray-worker-hpa
+  namespace: geo-climate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ray-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
