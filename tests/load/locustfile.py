@@ -24,9 +24,6 @@ Usage Examples:
 from locust import HttpUser, task, between, events
 import random
 import json
-from typing import Dict, List
-
-
 class GeoClimateUser(HttpUser):
     """Simulated user for load testing."""
     wait_time = between(1, 3)  # Wait 1-3 seconds between requests
