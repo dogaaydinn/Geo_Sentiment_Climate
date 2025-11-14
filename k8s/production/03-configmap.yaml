@@ -1,0 +1,174 @@
+# ConfigMap for Geo Climate Platform
+#
+# Non-sensitive configuration
+#
+# Usage:
+#   kubectl apply -f k8s/production/03-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: geo-climate-config
+  namespace: geo-climate
+  labels:
+    app: geo-climate
+    environment: production
+data:
+  # Application configuration
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+
+  # API configuration
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_WORKERS: "4"
+  API_TIMEOUT: "60"
+  API_MAX_REQUESTS: "10000"
+  API_MAX_REQUESTS_JITTER: "1000"
+
+  # CORS configuration
+  CORS_ALLOW_ORIGINS: "*"  # Configure appropriately for production
+  CORS_ALLOW_CREDENTIALS: "true"
+  CORS_ALLOW_METHODS: "GET,POST,PUT,DELETE,OPTIONS"
+  CORS_ALLOW_HEADERS: "*"
+
+  # Rate limiting
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_DEFAULT: "100"
+  RATE_LIMIT_WINDOW: "60"
+
+  # Database configuration (non-sensitive)
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  DB_POOL_PRE_PING: "true"
+  DB_ECHO: "false"
+
+  # Redis configuration (non-sensitive)
+  REDIS_DB: "0"
+  REDIS_SOCKET_TIMEOUT: "5"
+  REDIS_SOCKET_CONNECT_TIMEOUT: "5"
+  REDIS_MAX_CONNECTIONS: "50"
+
+  # Model configuration
+  MODEL_REGISTRY_PATH: "/app/models"
+  MODEL_CACHE_ENABLED: "true"
+  MODEL_CACHE_TTL: "3600"
+
+  # Monitoring
+  METRICS_ENABLED: "true"
+  METRICS_PORT: "9090"
+  TRACING_ENABLED: "true"
+  TRACING_SAMPLE_RATE: "0.1"
+
+  # Feature flags
+  FEATURE_BATCH_PREDICTIONS: "true"
+  FEATURE_MODEL_VERSIONING: "true"
+  FEATURE_A/B_TESTING: "false"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: geo-climate-nginx-config
+  namespace: geo-climate
+  labels:
+    app: geo-climate
+    component: nginx
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+
+    events {
+        worker_connections 4096;
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for" '
+                        'rt=$request_time uct="$upstream_connect_time" '
+                        'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+        access_log /var/log/nginx/access.log main;
+
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        server_tokens off;
+
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types text/plain text/css text/xml text/javascript
+                   application/json application/javascript application/xml+rss;
+
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
+        limit_req_status 429;
+
+        upstream api_backend {
+            least_conn;
+            server geo-climate-api:8000 max_fails=3 fail_timeout=30s;
+            keepalive 32;
+        }
+
+        server {
+            listen 80;
+            server_name _;
+
+            client_max_body_size 10M;
+            client_body_timeout 60s;
+            client_header_timeout 60s;
+
+            # Health check endpoint (bypass rate limiting)
+            location /health {
+                proxy_pass http://api_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+                proxy_connect_timeout 5s;
+                proxy_read_timeout 10s;
+            }
+
+            # API endpoints (with rate limiting)
+            location / {
+                limit_req zone=api_limit burst=20 nodelay;
+
+                proxy_pass http://api_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+
+                proxy_buffering on;
+                proxy_buffer_size 4k;
+                proxy_buffers 8 4k;
+                proxy_busy_buffers_size 8k;
+            }
+
+            # Metrics endpoint (no rate limiting, restrict access)
+            location /metrics {
+                allow 10.0.0.0/8;  # Internal network
+                deny all;
+                proxy_pass http://api_backend;
+            }
+        }
+    }

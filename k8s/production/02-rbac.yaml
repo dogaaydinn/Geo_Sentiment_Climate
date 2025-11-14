@@ -1,0 +1,159 @@
+# RBAC Configuration for Geo Climate Platform
+#
+# Creates ServiceAccounts, Roles, and RoleBindings
+#
+# Usage:
+#   kubectl apply -f k8s/production/02-rbac.yaml
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: geo-climate-api
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: api
+  annotations:
+    description: "Service account for Geo Climate API pods"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: geo-climate-worker
+  namespace: geo-climate
+  labels:
+    app: geo-climate-worker
+    component: worker
+  annotations:
+    description: "Service account for Geo Climate Worker pods"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: geo-climate-api-role
+  namespace: geo-climate
+rules:
+  # Allow reading ConfigMaps and Secrets
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading Services for service discovery
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading Pods (for metrics/monitoring)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: geo-climate-api-rolebinding
+  namespace: geo-climate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: geo-climate-api-role
+subjects:
+  - kind: ServiceAccount
+    name: geo-climate-api
+    namespace: geo-climate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: geo-climate-worker-role
+  namespace: geo-climate
+rules:
+  # Allow reading ConfigMaps and Secrets
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Allow reading Services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: geo-climate-worker-rolebinding
+  namespace: geo-climate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: geo-climate-worker-role
+subjects:
+  - kind: ServiceAccount
+    name: geo-climate-worker
+    namespace: geo-climate
+
+---
+# Network Policy for Pod-to-Pod Communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: geo-climate-network-policy
+  namespace: geo-climate
+spec:
+  podSelector:
+    matchLabels:
+      app: geo-climate-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow traffic from Prometheus
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow PostgreSQL access
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow Redis access
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow external HTTPS (for APIs, webhooks)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443

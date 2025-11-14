@@ -1,34 +1,186 @@
 """
-Monitoring and Metrics Module.
+Enterprise-Grade Monitoring and Metrics Module.
 
-Provides Prometheus metrics and monitoring capabilities.
-Part of Phase 2: Enhancement & Integration - Monitoring Stack.
+Comprehensive Prometheus metrics following Google SRE best practices:
+- Golden Signals (Latency, Traffic, Errors, Saturation)
+- Application metrics (API, ML models, business)
+- Infrastructure metrics (CPU, memory, disk, network)
+- Custom business metrics
+
+Part of Week 5: Prometheus & Metrics Implementation
 """
 
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY
-from prometheus_client.core import CollectorRegistry
+from prometheus_client import (
+    Counter, Histogram, Gauge, Summary, Info,
+    generate_latest, REGISTRY, CollectorRegistry
+)
 from fastapi import Response
-from typing import Dict
+from typing import Dict, Optional, Callable
+from functools import wraps
+from datetime import datetime
 import time
 import psutil
 import os
+import structlog
+
+# Configure logger
+logger = structlog.get_logger()
 
 # Create custom registry
 registry = CollectorRegistry(auto_describe=True)
 
-# Define metrics
-# API Request Metrics
+
+# ============================================================================
+# GOLDEN SIGNALS - Google SRE Best Practices
+# ============================================================================
+
+# 1. LATENCY - Request Duration
+# ============================================================================
+
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency in seconds',
+    ['method', 'endpoint', 'status'],
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    registry=registry
+)
+
+http_request_size_bytes = Histogram(
+    'http_request_size_bytes',
+    'HTTP request size in bytes',
+    ['method', 'endpoint'],
+    buckets=[100, 1000, 10000, 100000, 1000000, 10000000],
+    registry=registry
+)
+
+http_response_size_bytes = Histogram(
+    'http_response_size_bytes',
+    'HTTP response size in bytes',
+    ['method', 'endpoint', 'status'],
+    buckets=[100, 1000, 10000, 100000, 1000000, 10000000],
+    registry=registry
+)
+
+
+# 2. TRAFFIC - Request Rate
+# ============================================================================
+
 http_requests_total = Counter(
     'http_requests_total',
-    'Total HTTP requests',
+    'Total number of HTTP requests',
     ['method', 'endpoint', 'status'],
     registry=registry
 )
 
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
+http_requests_in_progress = Gauge(
+    'http_requests_in_progress',
+    'Number of HTTP requests currently being processed',
     ['method', 'endpoint'],
+    registry=registry
+)
+
+api_requests_per_second = Gauge(
+    'api_requests_per_second',
+    'Current API requests per second',
+    registry=registry
+)
+
+
+# 3. ERRORS - Error Rate
+# ============================================================================
+
+http_request_exceptions_total = Counter(
+    'http_request_exceptions_total',
+    'Total number of exceptions during request processing',
+    ['method', 'endpoint', 'exception_type'],
+    registry=registry
+)
+
+http_client_errors_total = Counter(
+    'http_client_errors_total',
+    'Total number of 4xx client errors',
+    ['method', 'endpoint', 'status'],
+    registry=registry
+)
+
+http_server_errors_total = Counter(
+    'http_server_errors_total',
+    'Total number of 5xx server errors',
+    ['method', 'endpoint', 'status'],
+    registry=registry
+)
+
+error_rate_percentage = Gauge(
+    'error_rate_percentage',
+    'Current error rate as percentage',
+    ['time_window'],
+    registry=registry
+)
+
+
+# 4. SATURATION - Resource Usage
+# ============================================================================
+
+system_cpu_usage_percent = Gauge(
+    'system_cpu_usage_percent',
+    'System CPU usage percentage',
+    registry=registry
+)
+
+system_cpu_count = Gauge(
+    'system_cpu_count',
+    'Number of CPU cores',
+    registry=registry
+)
+
+system_memory_usage_bytes = Gauge(
+    'system_memory_usage_bytes',
+    'System memory usage in bytes',
+    registry=registry
+)
+
+system_memory_total_bytes = Gauge(
+    'system_memory_total_bytes',
+    'Total system memory in bytes',
+    registry=registry
+)
+
+system_disk_usage_bytes = Gauge(
+    'system_disk_usage_bytes',
+    'Disk usage in bytes',
+    ['mountpoint'],
+    registry=registry
+)
+
+system_disk_total_bytes = Gauge(
+    'system_disk_total_bytes',
+    'Total disk space in bytes',
+    ['mountpoint'],
+    registry=registry
+)
+
+system_network_io_bytes_total = Counter(
+    'system_network_io_bytes_total',
+    'Total network I/O in bytes',
+    ['direction'],  # sent, received
+    registry=registry
+)
+
+database_connections_active = Gauge(
+    'database_connections_active',
+    'Number of active database connections',
+    registry=registry
+)
+
+database_connections_total = Gauge(
+    'database_connections_total',
+    'Total number of database connections',
+    registry=registry
+)
+
+redis_connections_active = Gauge(
+    'redis_connections_active',
+    'Number of active Redis connections',
     registry=registry
 )
 

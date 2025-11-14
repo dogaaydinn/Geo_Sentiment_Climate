@@ -1,0 +1,722 @@
+# Redis Cache for Geo Climate Platform
+#
+# Features:
+# - StatefulSet with persistence (RDB + AOF)
+# - Redis Sentinel for high availability
+# - Connection pooling
+# - Monitoring with redis_exporter
+# - Automated backups
+#
+# Usage:
+#   kubectl apply -f k8s/production/09-redis.yaml
+#
+# Access:
+#   # From within cluster
+#   redis-cli -h redis-0.redis-headless.geo-climate.svc.cluster.local -a <password>
+#
+#   # Port-forward for local access
+#   kubectl port-forward -n geo-climate redis-0 6379:6379
+
+---
+# ============================================================================
+# Redis ConfigMap
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: geo-climate
+  labels:
+    app: redis
+data:
+  redis.conf: |
+    # Network
+    bind 0.0.0.0
+    port 6379
+    protected-mode yes
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+
+    # General
+    daemonize no
+    supervised no
+    pidfile /var/run/redis.pid
+    loglevel notice
+    logfile ""
+
+    # Snapshotting (RDB persistence)
+    save 900 1      # After 900 sec (15 min) if at least 1 key changed
+    save 300 10     # After 300 sec (5 min) if at least 10 keys changed
+    save 60 10000   # After 60 sec if at least 10000 keys changed
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+
+    # Append-only file (AOF persistence)
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    aof-use-rdb-preamble yes
+
+    # Memory Management
+    maxmemory 2gb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+
+    # Lazy Freeing
+    lazyfree-lazy-eviction yes
+    lazyfree-lazy-expire yes
+    lazyfree-lazy-server-del yes
+    replica-lazy-flush yes
+
+    # Replication
+    replica-serve-stale-data yes
+    replica-read-only yes
+    repl-diskless-sync no
+    repl-diskless-sync-delay 5
+    repl-disable-tcp-nodelay no
+    replica-priority 100
+
+    # Security
+    # Password set via requirepass in command args
+
+    # Clients
+    maxclients 10000
+
+    # Slow Log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Latency Monitor
+    latency-monitor-threshold 100
+
+    # Event Notification
+    notify-keyspace-events ""
+
+    # Advanced Config
+    hash-max-ziplist-entries 512
+    hash-max-ziplist-value 64
+    list-max-ziplist-size -2
+    list-compress-depth 0
+    set-max-intset-entries 512
+    zset-max-ziplist-entries 128
+    zset-max-ziplist-value 64
+    hll-sparse-max-bytes 3000
+    stream-node-max-bytes 4096
+    stream-node-max-entries 100
+    activerehashing yes
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+    hz 10
+    dynamic-hz yes
+    aof-rewrite-incremental-fsync yes
+    rdb-save-incremental-fsync yes
+
+  sentinel.conf: |
+    # Sentinel configuration
+    port 26379
+    dir /data
+
+    # Monitor master
+    sentinel monitor mymaster redis-0.redis-headless.geo-climate.svc.cluster.local 6379 2
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel parallel-syncs mymaster 1
+    sentinel failover-timeout mymaster 10000
+
+    # Security
+    # sentinel auth-pass mymaster <password>
+
+---
+# ============================================================================
+# Redis Headless Service (for StatefulSet)
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: geo-climate
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+    - name: sentinel
+      port: 26379
+      targetPort: 26379
+      protocol: TCP
+  selector:
+    app: redis
+
+---
+# Redis Service (for client connections)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: geo-climate
+  labels:
+    app: redis
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9121"
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+    - name: metrics
+      port: 9121
+      targetPort: 9121
+      protocol: TCP
+  selector:
+    app: redis
+
+---
+# ============================================================================
+# Redis StatefulSet
+# ============================================================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: geo-climate
+  labels:
+    app: redis
+spec:
+  serviceName: redis-headless
+  replicas: 1  # Start with 1, scale to 3 for HA with Sentinel
+  selector:
+    matchLabels:
+      app: redis
+
+  # Pod Management
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: redis
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+
+    spec:
+      serviceAccountName: geo-climate-api
+
+      # Security Context
+      securityContext:
+        fsGroup: 999  # redis user
+        runAsUser: 999
+        runAsNonRoot: true
+
+      # Init containers
+      initContainers:
+        # Set proper permissions
+        - name: init-chmod
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data
+              chown -R 999:999 /data
+              chmod 0700 /data
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0  # Run as root for chown
+
+      containers:
+        # Redis container
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - redis-server
+            - /etc/redis/redis.conf
+            - --requirepass
+            - $(REDIS_PASSWORD)
+
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secrets
+                  key: REDIS_PASSWORD
+
+          # Resource limits
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping | grep PONG
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping | grep PONG
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Startup probe
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping | grep PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 20  # 100 seconds max startup time
+
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: redis-config
+              mountPath: /etc/redis/redis.conf
+              subPath: redis.conf
+
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+        # Redis Exporter for Prometheus metrics
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.55.0-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: metrics
+              containerPort: 9121
+              protocol: TCP
+
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secrets
+                  key: REDIS_PASSWORD
+
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534  # nobody
+
+      volumes:
+        - name: redis-config
+          configMap:
+            name: redis-config
+
+  # Volume Claim Templates
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# ============================================================================
+# Redis Sentinel StatefulSet (for High Availability)
+# ============================================================================
+# Uncomment for HA setup with automatic failover
+
+# apiVersion: apps/v1
+# kind: StatefulSet
+# metadata:
+#   name: redis-sentinel
+#   namespace: geo-climate
+#   labels:
+#     app: redis-sentinel
+# spec:
+#   serviceName: redis-headless
+#   replicas: 3
+#   selector:
+#     matchLabels:
+#       app: redis-sentinel
+#   template:
+#     metadata:
+#       labels:
+#         app: redis-sentinel
+#     spec:
+#       containers:
+#         - name: sentinel
+#           image: redis:7.2-alpine
+#           command:
+#             - redis-sentinel
+#             - /etc/redis/sentinel.conf
+#           ports:
+#             - name: sentinel
+#               containerPort: 26379
+#           volumeMounts:
+#             - name: redis-config
+#               mountPath: /etc/redis/sentinel.conf
+#               subPath: sentinel.conf
+#             - name: sentinel-data
+#               mountPath: /data
+#           resources:
+#             requests:
+#               memory: "128Mi"
+#               cpu: "100m"
+#             limits:
+#               memory: "256Mi"
+#               cpu: "200m"
+#       volumes:
+#         - name: redis-config
+#           configMap:
+#             name: redis-config
+#   volumeClaimTemplates:
+#     - metadata:
+#         name: sentinel-data
+#       spec:
+#         accessModes:
+#           - ReadWriteOnce
+#         storageClassName: fast-ssd
+#         resources:
+#           requests:
+#             storage: 1Gi
+
+---
+# ============================================================================
+# Redis Backup CronJob
+# ============================================================================
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: redis-backup
+  namespace: geo-climate
+  labels:
+    app: redis-backup
+spec:
+  # Run daily at 3 AM
+  schedule: "0 3 * * *"
+
+  # Keep last 3 successful jobs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: redis-backup
+        spec:
+          restartPolicy: OnFailure
+
+          containers:
+            - name: backup
+              image: redis:7.2-alpine
+              imagePullPolicy: IfNotPresent
+
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_FILE="/backups/redis_${TIMESTAMP}.rdb"
+
+                  echo "Starting Redis backup at ${TIMESTAMP}..."
+
+                  # Trigger BGSAVE
+                  redis-cli -h redis -a $REDIS_PASSWORD BGSAVE
+
+                  # Wait for BGSAVE to complete
+                  while [ "$(redis-cli -h redis -a $REDIS_PASSWORD LASTSAVE)" = "$(redis-cli -h redis -a $REDIS_PASSWORD LASTSAVE)" ]; do
+                    echo "Waiting for BGSAVE to complete..."
+                    sleep 5
+                  done
+
+                  # Copy RDB file
+                  redis-cli -h redis -a $REDIS_PASSWORD --rdb ${BACKUP_FILE}
+
+                  echo "Backup completed: ${BACKUP_FILE}"
+                  ls -lh ${BACKUP_FILE}
+
+                  # Cleanup old backups (keep last 30 days)
+                  echo "Cleaning up old backups..."
+                  find /backups -name "redis_*.rdb" -mtime +30 -delete
+
+                  echo "Backup process finished!"
+
+              env:
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secrets
+                      key: REDIS_PASSWORD
+
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "200m"
+
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: app-backups-pvc
+
+---
+# ============================================================================
+# Redis HPA (if needed for read replicas)
+# ============================================================================
+# Uncomment for auto-scaling read replicas
+
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: redis-hpa
+#   namespace: geo-climate
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: StatefulSet
+#     name: redis
+#   minReplicas: 1
+#   maxReplicas: 5
+#   metrics:
+#     - type: Resource
+#       resource:
+#         name: cpu
+#         target:
+#           type: Utilization
+#           averageUtilization: 70
+#     - type: Resource
+#       resource:
+#         name: memory
+#         target:
+#           type: Utilization
+#           averageUtilization: 80
+
+---
+# ============================================================================
+# PRODUCTION DEPLOYMENT NOTES
+# ============================================================================
+#
+# 1. HIGH AVAILABILITY SETUP
+# ---------------------------
+# For production HA, use Redis Sentinel:
+#
+# Scale Redis StatefulSet to 3 replicas:
+#   kubectl scale statefulset redis --replicas=3 -n geo-climate
+#
+# Deploy Redis Sentinel (uncomment sentinel StatefulSet above)
+#   - 3 Sentinel instances monitor Redis master
+#   - Automatic failover on master failure
+#   - Quorum of 2 required for failover
+#
+# Alternative: Use Redis Operator
+#   - Spotahome Redis Operator
+#   - Redis Enterprise Operator
+#
+# 2. PERSISTENCE MODES
+# ---------------------
+# RDB (Snapshot):
+#   - Point-in-time snapshots
+#   - Compact, good for backups
+#   - Can lose data between snapshots
+#
+# AOF (Append-Only File):
+#   - Log every write operation
+#   - Better durability (fsync every second)
+#   - Larger file size
+#
+# Hybrid (RDB + AOF):
+#   - Best of both worlds (configured by default)
+#   - AOF for durability, RDB for fast restarts
+#
+# 3. MONITORING
+# -------------
+# Prometheus metrics via redis_exporter:
+#   - redis_up: Instance availability
+#   - redis_connected_clients: Active connections
+#   - redis_memory_used_bytes: Memory usage
+#   - redis_commands_processed_total: Throughput
+#   - redis_keyspace_hits_total / redis_keyspace_misses_total: Hit rate
+#
+# Key metrics to monitor:
+#   - Hit rate: Should be > 90%
+#   - Memory usage: Monitor for evictions
+#   - Replication lag: If using replicas
+#   - Slow commands: Via SLOWLOG
+#
+# 4. MEMORY MANAGEMENT
+# --------------------
+# maxmemory-policy options:
+#   - allkeys-lru: Evict any key using LRU (configured)
+#   - volatile-lru: Evict keys with TTL using LRU
+#   - allkeys-lfu: LFU eviction (Redis 4.0+)
+#   - noeviction: Return errors when memory limit reached
+#
+# Monitor evictions:
+#   redis-cli -a <password> INFO stats | grep evicted
+#
+# 5. PERFORMANCE TUNING
+# ----------------------
+# Connection pooling in application:
+#   - Use connection pool (size ~= expected concurrent requests)
+#   - Enable TCP keepalive
+#   - Set appropriate timeouts
+#
+# Pipeline commands when possible:
+#   - Batch multiple commands into single round-trip
+#
+# Use appropriate data structures:
+#   - Hashes for objects
+#   - Sorted sets for leaderboards
+#   - Bitmaps for analytics
+#   - HyperLogLog for cardinality
+#
+# 6. SECURITY
+# -----------
+# - Enable requirepass (configured via secret)
+# - Use ACLs for fine-grained access control (Redis 6+)
+# - Enable SSL/TLS for encrypted connections
+# - Disable dangerous commands: FLUSHDB, FLUSHALL, KEYS, CONFIG
+#
+# Example ACL configuration:
+#   ACL SETUSER api-user on >password ~cached:* +get +set +del
+#
+# 7. BACKUP & RESTORE
+# -------------------
+# Automated backups via CronJob (configured)
+#
+# Manual backup:
+#   redis-cli -a <password> BGSAVE
+#   # Copy dump.rdb from /data
+#
+# Restore from backup:
+#   # Stop Redis
+#   # Replace dump.rdb in /data
+#   # Start Redis
+#
+# Or use --rdb flag:
+#   redis-cli -a <password> --rdb /backups/dump.rdb
+#
+# 8. COMMON USE CASES
+# -------------------
+# Session Storage:
+#   - Use with TTL
+#   - Hash data structure
+#
+# Rate Limiting:
+#   - Sliding window with sorted sets
+#   - Fixed window with simple counters
+#
+# Caching:
+#   - Cache-aside pattern
+#   - Write-through/write-behind
+#
+# Real-time Analytics:
+#   - HyperLogLog for unique counts
+#   - Sorted sets for leaderboards
+#
+# Message Queue:
+#   - Lists with LPUSH/RPOP
+#   - Streams (Redis 5.0+) for more features
+#
+# 9. TROUBLESHOOTING
+# ------------------
+# Check slow commands:
+#   redis-cli -a <password> SLOWLOG GET 10
+#
+# Monitor commands in real-time:
+#   redis-cli -a <password> MONITOR
+#
+# Check memory usage by key:
+#   redis-cli -a <password> --bigkeys
+#
+# Check client connections:
+#   redis-cli -a <password> CLIENT LIST
+#
+# ============================================================================

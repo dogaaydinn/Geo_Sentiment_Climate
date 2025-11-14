@@ -1,0 +1,439 @@
+# Persistent Storage for Geo Climate Platform
+#
+# Creates PersistentVolumeClaims for:
+# - PostgreSQL database (high-performance SSD)
+# - Model storage (large capacity)
+# - Application logs (moderate performance)
+# - Backups (cost-optimized storage)
+#
+# Storage Classes (cloud-provider specific):
+# - AWS EBS: gp3 (general purpose SSD), io2 (provisioned IOPS)
+# - GCP PD: pd-ssd (SSD), pd-standard (HDD)
+# - Azure: managed-premium (SSD), managed-standard (HDD)
+#
+# Usage:
+#   kubectl apply -f k8s/production/07-storage.yaml
+
+---
+# ============================================================================
+# Storage Classes
+# ============================================================================
+
+# High-performance SSD for databases
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+  labels:
+    app: geo-climate
+provisioner: kubernetes.io/aws-ebs  # Change based on cloud provider
+parameters:
+  type: gp3  # AWS EBS gp3 (general purpose SSD v3)
+  iopsPerGB: "50"
+  throughput: "250"  # MB/s
+  encrypted: "true"
+  kmsKeyId: ""  # Add KMS key for encryption
+allowVolumeExpansion: true
+reclaimPolicy: Retain  # Keep data after PVC deletion
+volumeBindingMode: WaitForFirstConsumer
+---
+
+# Cost-optimized storage for backups and archives
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard-storage
+  labels:
+    app: geo-climate
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: st1  # AWS EBS st1 (throughput optimized HDD)
+  encrypted: "true"
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+
+---
+# ============================================================================
+# Database Storage
+# ============================================================================
+
+# PostgreSQL Primary Database Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-primary-pvc
+  namespace: geo-climate
+  labels:
+    app: postgres
+    component: database
+    tier: primary
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "fast-ssd"
+    description: "Primary PostgreSQL database storage"
+spec:
+  accessModes:
+    - ReadWriteOnce  # RWO: Single node read-write
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 100Gi  # Adjust based on data size
+  # Optional: Use specific PV
+  # selector:
+  #   matchLabels:
+  #     type: postgres-primary
+
+---
+# PostgreSQL WAL (Write-Ahead Log) Storage
+# Separate volume for better I/O performance
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-wal-pvc
+  namespace: geo-climate
+  labels:
+    app: postgres
+    component: database
+    tier: wal
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "fast-ssd"
+    description: "PostgreSQL Write-Ahead Log storage"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 20Gi  # WAL typically smaller than main DB
+
+---
+# ============================================================================
+# Redis Storage
+# ============================================================================
+
+# Redis Persistence (RDB snapshots + AOF logs)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-pvc
+  namespace: geo-climate
+  labels:
+    app: redis
+    component: cache
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "fast-ssd"
+    description: "Redis persistence storage (RDB + AOF)"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 10Gi  # Adjust based on cache size
+
+---
+# ============================================================================
+# Model Storage
+# ============================================================================
+
+# ML Model Storage (trained models, artifacts)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage-pvc
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: storage
+    type: models
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "fast-ssd"
+    description: "ML model artifacts and weights"
+spec:
+  accessModes:
+    - ReadWriteMany  # RWX: Multiple pods can read (if supported by storage class)
+    # If RWX not supported, use ReadWriteOnce with single-pod constraint
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi  # ML models can be large
+
+---
+# Model Training Data Cache
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: training-data-pvc
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: storage
+    type: training-data
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "standard-storage"
+    description: "Training data cache and preprocessing artifacts"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-storage
+  resources:
+    requests:
+      storage: 200Gi  # Training data can be very large
+
+---
+# ============================================================================
+# Application Logs and Temporary Storage
+# ============================================================================
+
+# Application Logs (structured logs, not sent to centralized logging yet)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-logs-pvc
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: storage
+    type: logs
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "standard-storage"
+    description: "Application log files and audit trails"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-storage
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Temporary/Scratch Storage for batch processing
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temp-storage-pvc
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: storage
+    type: temp
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "fast-ssd"
+    description: "Temporary storage for batch processing and exports"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 30Gi
+
+---
+# ============================================================================
+# Backup Storage
+# ============================================================================
+
+# Database Backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-backups-pvc
+  namespace: geo-climate
+  labels:
+    app: postgres
+    component: backup
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "standard-storage"
+    description: "PostgreSQL backups (pg_dump, WAL archives)"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-storage
+  resources:
+    requests:
+      storage: 500Gi  # Keep multiple backup versions
+
+---
+# Application Backups (model snapshots, configuration)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-backups-pvc
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: backup
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "standard-storage"
+    description: "Application backups (models, config snapshots)"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-storage
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# ============================================================================
+# PRODUCTION STORAGE BEST PRACTICES
+# ============================================================================
+#
+# 1. BACKUP STRATEGY
+# ------------------
+# - Automated daily backups with retention policy
+# - Point-in-time recovery (PITR) for databases
+# - Cross-region backup replication
+# - Regular restore testing
+#
+# Example CronJob for database backups:
+# apiVersion: batch/v1
+# kind: CronJob
+# metadata:
+#   name: postgres-backup
+#   namespace: geo-climate
+# spec:
+#   schedule: "0 2 * * *"  # Daily at 2 AM
+#   jobTemplate:
+#     spec:
+#       template:
+#         spec:
+#           containers:
+#             - name: backup
+#               image: postgres:15
+#               command:
+#                 - /bin/bash
+#                 - -c
+#                 - |
+#                   TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+#                   pg_dump -h postgres -U $POSTGRES_USER -d $POSTGRES_DB | \
+#                   gzip > /backups/backup_${TIMESTAMP}.sql.gz
+#                   # Cleanup old backups (keep last 30 days)
+#                   find /backups -name "backup_*.sql.gz" -mtime +30 -delete
+#               volumeMounts:
+#                 - name: backups
+#                   mountPath: /backups
+#               envFrom:
+#                 - secretRef:
+#                     name: postgres-secrets
+#           volumes:
+#             - name: backups
+#               persistentVolumeClaim:
+#                 claimName: db-backups-pvc
+#           restartPolicy: OnFailure
+#
+# 2. MONITORING & ALERTS
+# -----------------------
+# - Monitor volume usage (alert at 80% full)
+# - Track I/O performance metrics
+# - Alert on slow disk operations
+#
+# Prometheus alerts:
+# - alert: PVCAlmostFull
+#   expr: kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > 0.8
+#   for: 10m
+#
+# 3. VOLUME EXPANSION
+# -------------------
+# All storage classes have allowVolumeExpansion: true
+#
+# To expand a volume:
+# kubectl patch pvc postgres-primary-pvc -p '{"spec":{"resources":{"requests":{"storage":"200Gi"}}}}'
+#
+# 4. SNAPSHOT & RESTORE
+# ----------------------
+# Create volume snapshots for quick recovery:
+#
+# apiVersion: snapshot.storage.k8s.io/v1
+# kind: VolumeSnapshot
+# metadata:
+#   name: postgres-snapshot-$(date +%Y%m%d)
+#   namespace: geo-climate
+# spec:
+#   volumeSnapshotClassName: csi-aws-vsc
+#   source:
+#     persistentVolumeClaimName: postgres-primary-pvc
+#
+# Restore from snapshot:
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: postgres-restored-pvc
+# spec:
+#   dataSource:
+#     name: postgres-snapshot-20250114
+#     kind: VolumeSnapshot
+#     apiGroup: snapshot.storage.k8s.io
+#   accessModes:
+#     - ReadWriteOnce
+#   storageClassName: fast-ssd
+#   resources:
+#     requests:
+#       storage: 100Gi
+#
+# 5. ENCRYPTION
+# -------------
+# All volumes should be encrypted at rest:
+# - AWS EBS: encrypted: "true" with KMS key
+# - GCP PD: Automatic encryption
+# - Azure: Encrypted by default
+#
+# 6. COST OPTIMIZATION
+# --------------------
+# - Use lifecycle policies to transition old backups to cheaper storage
+# - Monitor unused PVCs and delete them
+# - Use appropriate storage tiers (SSD vs HDD)
+# - Implement data compression where applicable
+#
+# 7. DISASTER RECOVERY
+# ---------------------
+# - Cross-region replication for critical data
+# - Regular DR drills
+# - Documented recovery procedures
+# - RTO/RPO definitions:
+#   - Database: RTO=1h, RPO=5min
+#   - Models: RTO=4h, RPO=1day
+#   - Logs: RTO=24h, RPO=1day
+#
+# 8. COMPLIANCE
+# -------------
+# - Data retention policies
+# - Data sovereignty requirements
+# - Encryption requirements (FIPS 140-2, etc.)
+# - Audit logging of access
+#
+# ============================================================================
+# CLOUD PROVIDER SPECIFICS
+# ============================================================================
+#
+# AWS EBS
+# -------
+# provisioner: kubernetes.io/aws-ebs
+# parameters:
+#   type: gp3           # General Purpose SSD v3
+#   iopsPerGB: "50"     # 3000 IOPS baseline
+#   throughput: "250"   # 250 MB/s
+#   encrypted: "true"
+#   kmsKeyId: "arn:aws:kms:..."
+#
+# GCP Persistent Disk
+# -------------------
+# provisioner: kubernetes.io/gce-pd
+# parameters:
+#   type: pd-ssd        # SSD persistent disk
+#   replication-type: regional-pd  # Regional replication
+#
+# Azure Disk
+# ----------
+# provisioner: kubernetes.io/azure-disk
+# parameters:
+#   storageaccounttype: Premium_LRS  # Premium SSD
+#   kind: Managed
+#
+# Local Storage (for development)
+# --------------------------------
+# provisioner: kubernetes.io/no-provisioner
+# volumeBindingMode: WaitForFirstConsumer
+# Use HostPath or Local PV for testing
+#
+# ============================================================================

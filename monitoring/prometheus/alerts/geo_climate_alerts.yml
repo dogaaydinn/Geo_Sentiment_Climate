@@ -1,0 +1,361 @@
+"""
+Prometheus Alert Rules for Geo Climate Platform.
+
+Alerts based on Google SRE best practices:
+- Latency alerts (p95, p99)
+- Traffic alerts (RPS)
+- Error rate alerts
+- Saturation alerts (CPU, memory, disk)
+"""
+
+groups:
+  # ============================================================================
+  # API Performance Alerts
+  # ============================================================================
+  - name: api_performance
+    interval: 30s
+    rules:
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          category: performance
+        annotations:
+          summary: "API latency is high"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 1s) for endpoint {{ $labels.endpoint }}"
+          runbook_url: "https://docs.example.com/runbooks/high-latency"
+
+      - alert: VeryHighAPILatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+          category: performance
+        annotations:
+          summary: "API latency is critically high"
+          description: "P99 latency is {{ $value | humanizeDuration }} (threshold: 5s)"
+          runbook_url: "https://docs.example.com/runbooks/critical-latency"
+
+  # ============================================================================
+  # Error Rate Alerts
+  # ============================================================================
+  - name: error_rates
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+          category: errors
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%) for endpoint {{ $labels.endpoint }}"
+          runbook_url: "https://docs.example.com/runbooks/high-error-rate"
+
+      - alert: CriticalErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: errors
+        annotations:
+          summary: "CRITICAL: Very high error rate"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://docs.example.com/runbooks/critical-error-rate"
+
+      - alert: NoTraffic
+        expr: |
+          rate(http_requests_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          category: traffic
+        annotations:
+          summary: "No API traffic detected"
+          description: "No requests in the last 10 minutes - service may be down"
+          runbook_url: "https://docs.example.com/runbooks/no-traffic"
+
+  # ============================================================================
+  # ML Model Alerts
+  # ============================================================================
+  - name: ml_model_alerts
+    interval: 30s
+    rules:
+      - alert: ModelPredictionFailures
+        expr: |
+          rate(model_predictions_total{status="error"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: ml
+          category: ml_inference
+        annotations:
+          summary: "High model prediction failure rate"
+          description: "Model {{ $labels.model_name }} v{{ $labels.model_version }} has {{ $value }} failures/sec"
+          runbook_url: "https://docs.example.com/runbooks/model-failures"
+
+      - alert: SlowModelInference
+        expr: |
+          histogram_quantile(0.95,
+            rate(model_prediction_duration_seconds_bucket[5m])
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: warning
+          team: ml
+          category: ml_performance
+        annotations:
+          summary: "Model inference is slow"
+          description: "P95 inference time for {{ $labels.model_name }} is {{ $value | humanizeDuration }}"
+          runbook_url: "https://docs.example.com/runbooks/slow-inference"
+
+      - alert: LowModelConfidence
+        expr: |
+          histogram_quantile(0.5,
+            rate(model_prediction_confidence_bucket[5m])
+          ) < 0.7
+        for: 30m
+        labels:
+          severity: warning
+          team: ml
+          category: ml_quality
+        annotations:
+          summary: "Low model prediction confidence"
+          description: "Median confidence for {{ $labels.model_name }} is {{ $value | humanizePercentage }}"
+          runbook_url: "https://docs.example.com/runbooks/low-confidence"
+
+  # ============================================================================
+  # System Resource Alerts
+  # ============================================================================
+  - name: system_resources
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: system_cpu_usage_percent > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: infra
+          category: resources
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+          runbook_url: "https://docs.example.com/runbooks/high-cpu"
+
+      - alert: CriticalCPUUsage
+        expr: system_cpu_usage_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+          team: infra
+          category: resources
+        annotations:
+          summary: "CRITICAL: CPU usage extremely high"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+          runbook_url: "https://docs.example.com/runbooks/critical-cpu"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (system_memory_usage_bytes / system_memory_total_bytes) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: infra
+          category: resources
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+          runbook_url: "https://docs.example.com/runbooks/high-memory"
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          (system_memory_usage_bytes / system_memory_total_bytes) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          team: infra
+          category: resources
+        annotations:
+          summary: "CRITICAL: Memory usage extremely high"
+          description: "Memory usage is {{ $value }}% - OOM kill imminent!"
+          runbook_url: "https://docs.example.com/runbooks/critical-memory"
+
+      - alert: HighDiskUsage
+        expr: |
+          (system_disk_usage_bytes / system_disk_total_bytes) * 100 > 85
+        for: 30m
+        labels:
+          severity: warning
+          team: infra
+          category: resources
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+          runbook_url: "https://docs.example.com/runbooks/high-disk"
+
+      - alert: CriticalDiskUsage
+        expr: |
+          (system_disk_usage_bytes / system_disk_total_bytes) * 100 > 95
+        for: 10m
+        labels:
+          severity: critical
+          team: infra
+          category: resources
+        annotations:
+          summary: "CRITICAL: Disk almost full"
+          description: "Disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+          runbook_url: "https://docs.example.com/runbooks/critical-disk"
+
+  # ============================================================================
+  # Database Alerts
+  # ============================================================================
+  - name: database_alerts
+    interval: 30s
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          database_connections_active / database_connections_total > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+          category: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Using {{ $value | humanizePercentage }} of connection pool"
+          runbook_url: "https://docs.example.com/runbooks/db-pool-exhausted"
+
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            rate(database_query_duration_seconds_bucket[5m])
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          category: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "P95 query time is {{ $value | humanizeDuration }}"
+          runbook_url: "https://docs.example.com/runbooks/slow-queries"
+
+      - alert: DatabaseDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: database
+        annotations:
+          summary: "CRITICAL: Database is down"
+          description: "PostgreSQL database is unreachable"
+          runbook_url: "https://docs.example.com/runbooks/db-down"
+
+  # ============================================================================
+  # Redis Cache Alerts
+  # ============================================================================
+  - name: redis_alerts
+    interval: 30s
+    rules:
+      - alert: LowCacheHitRate
+        expr: |
+          rate(cache_hits_total[5m])
+          / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m])) < 0.8
+        for: 30m
+        labels:
+          severity: warning
+          team: backend
+          category: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://docs.example.com/runbooks/low-cache-hit-rate"
+
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          category: cache
+        annotations:
+          summary: "CRITICAL: Redis is down"
+          description: "Redis cache is unreachable"
+          runbook_url: "https://docs.example.com/runbooks/redis-down"
+
+  # ============================================================================
+  # Rate Limiting Alerts
+  # ============================================================================
+  - name: rate_limiting_alerts
+    interval: 30s
+    rules:
+      - alert: HighRateLimitHitRate
+        expr: |
+          rate(rate_limit_exceeded_total[5m]) > 10
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+          category: rate_limiting
+        annotations:
+          summary: "High rate limit hit rate"
+          description: "{{ $value }} requests/sec hitting rate limits"
+          runbook_url: "https://docs.example.com/runbooks/high-rate-limit-hits"
+
+  # ============================================================================
+  # SLO Burn Rate Alerts (Advanced)
+  # ============================================================================
+  - name: slo_burn_rate
+    interval: 30s
+    rules:
+      # 2% error budget burn in 1 hour (very fast)
+      - alert: ErrorBudgetBurnFast
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total[1h]))
+          ) > (0.02 * 14.4)
+        labels:
+          severity: critical
+          team: sre
+          category: slo
+        annotations:
+          summary: "CRITICAL: Error budget burning fast"
+          description: "Burning 2% of monthly error budget in 1 hour"
+          runbook_url: "https://docs.example.com/runbooks/error-budget-burn"
+
+      # 5% error budget burn in 6 hours (fast)
+      - alert: ErrorBudgetBurnModerate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total[6h]))
+          ) > (0.05 * 6)
+        labels:
+          severity: warning
+          team: sre
+          category: slo
+        annotations:
+          summary: "Error budget burning moderately fast"
+          description: "Burning 5% of monthly error budget in 6 hours"
+          runbook_url: "https://docs.example.com/runbooks/error-budget-burn"

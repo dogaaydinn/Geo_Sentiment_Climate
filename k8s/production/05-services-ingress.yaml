@@ -1,0 +1,227 @@
+# Services and Ingress for Geo Climate Platform
+#
+# Creates:
+# - ClusterIP service for internal communication
+# - Ingress for external access with SSL/TLS
+#
+# Usage:
+#   kubectl apply -f k8s/production/05-services-ingress.yaml
+
+---
+# ClusterIP Service for API
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-climate-api
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    component: api
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: geo-climate-api
+    component: api
+
+---
+# Headless Service for StatefulSets (if needed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-climate-api-headless
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    app: geo-climate-api
+
+---
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: geo-climate-ingress
+  namespace: geo-climate
+  labels:
+    app: geo-climate
+  annotations:
+    # NGINX Ingress Controller annotations
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"  # Configure for production
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+
+    # Certificate management (cert-manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/acme-challenge-type: "http01"
+
+    # Monitoring
+    nginx.ingress.kubernetes.io/enable-opentracing: "true"
+
+spec:
+  tls:
+    - hosts:
+        - api.geo-climate.example.com
+        - www.geo-climate.example.com
+      secretName: geo-climate-tls-secret
+
+  rules:
+    # API domain
+    - host: api.geo-climate.example.com
+      http:
+        paths:
+          # Health check (no rate limiting)
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 80
+
+          # API endpoints
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 80
+
+          # Documentation
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 80
+
+          # All other paths
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 80
+
+    # Main domain (redirect to API or serve static site)
+    - host: www.geo-climate.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 80
+
+---
+# Certificate (if using cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: geo-climate-tls
+  namespace: geo-climate
+spec:
+  secretName: geo-climate-tls-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - api.geo-climate.example.com
+    - www.geo-climate.example.com
+  duration: 2160h  # 90 days
+  renewBefore: 360h  # 15 days
+
+---
+# Ingress for metrics (restricted access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: geo-climate-metrics-ingress
+  namespace: geo-climate
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"  # Internal network only
+    nginx.ingress.kubernetes.io/auth-type: "basic"
+    nginx.ingress.kubernetes.io/auth-secret: "basic-auth"
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
+spec:
+  rules:
+    - host: metrics.geo-climate.example.com
+      http:
+        paths:
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-climate-api
+                port:
+                  number: 9090
+
+---
+# Service Monitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: geo-climate-api
+  namespace: geo-climate
+  labels:
+    app: geo-climate-api
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: geo-climate-api
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+      scheme: http

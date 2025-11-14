@@ -1,0 +1,523 @@
+# Production Environment Values
+# Override default values for production deployment
+#
+# SECURITY WARNING:
+# - Never commit actual secrets to version control
+# - Use external secret management (Vault, AWS Secrets Manager, etc.)
+# - Override sensitive values at deployment time
+#
+# Usage:
+#   helm install geo-climate ./helm/geo-climate \
+#     --namespace geo-climate \
+#     --create-namespace \
+#     --values ./helm/geo-climate/values-prod.yaml \
+#     --set postgresql.auth.password=$DB_PASSWORD \
+#     --set secrets.jwtSecretKey=$JWT_SECRET
+
+# Global settings
+global:
+  namespace: geo-climate
+  environment: production
+
+# Application configuration
+app:
+  name: geo-climate
+  version: "2.0.0"
+
+# API deployment - Production-grade configuration
+api:
+  replicaCount: 3  # Minimum for HA
+
+  image:
+    repository: ghcr.io/dogaaydinn/geo_sentiment_climate
+    tag: v2.0.0  # Always use specific version tags in production
+    pullPolicy: IfNotPresent  # Avoid unnecessary pulls in production
+
+  service:
+    type: ClusterIP  # Use Ingress for external access
+    port: 80
+    targetPort: 8000
+    metricsPort: 9090
+
+    # Session affinity for stateful connections
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 10800  # 3 hours
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+    # Behavior for scaling events
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300  # 5 min
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+        selectPolicy: Min
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 60
+          - type: Pods
+            value: 4
+            periodSeconds: 60
+        selectPolicy: Max
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: 8000
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Production environment variables
+  env:
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: ENVIRONMENT
+      value: "production"
+    - name: DEBUG
+      value: "false"
+    - name: ENABLE_CORS
+      value: "true"
+    - name: ENABLE_PROFILING
+      value: "false"  # Disabled in production
+    - name: ENABLE_DETAILED_ERRORS
+      value: "false"  # Hide details in production
+
+  # Init containers for production
+  initContainers:
+    - name: wait-for-db
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          until nc -z postgres 5432; do
+            echo "Waiting for database..."
+            sleep 2
+          done
+    - name: wait-for-redis
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          until nc -z redis 6379; do
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+
+# PostgreSQL database - Production HA configuration
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 15-alpine
+
+  auth:
+    database: geo_climate_prod
+    username: postgres
+    # MUST override: --set postgresql.auth.password=$DB_PASSWORD
+    password: "CHANGE_ME_PRODUCTION_DB"
+
+  # Architecture for HA
+  architecture: replication
+
+  primary:
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: fast-ssd  # High-performance SSD
+
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "500m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+
+    # Pod disruption budget
+    podDisruptionBudget:
+      create: true
+      minAvailable: 1
+
+    # Automated backups
+    backup:
+      enabled: true
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      retention: 30  # Keep 30 days
+
+  # Read replicas for HA
+  readReplicas:
+    replicaCount: 2
+
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: fast-ssd
+
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "500m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+
+  # PostgreSQL metrics
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+
+  # Connection pooling with PgBouncer
+  pgpool:
+    enabled: true
+    numInitChildren: 32
+    maxPool: 4
+
+# Redis cache - Production HA configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+
+  # Architecture for HA
+  architecture: replication
+
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: fast-ssd
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+  # Redis replicas
+  replica:
+    replicaCount: 2
+
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: fast-ssd
+
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+  auth:
+    enabled: true
+    # MUST override: --set redis.auth.password=$REDIS_PASSWORD
+    password: "CHANGE_ME_REDIS_PRODUCTION"
+
+  # Sentinel for automatic failover
+  sentinel:
+    enabled: true
+    quorum: 2
+
+  # Redis metrics
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+
+# Persistent storage
+persistence:
+  models:
+    enabled: true
+    size: 50Gi
+    storageClass: fast-ssd
+    accessMode: ReadWriteMany
+
+  data:
+    enabled: true
+    size: 200Gi
+    storageClass: fast-ssd
+    accessMode: ReadWriteMany
+
+# Ingress - Production SSL/TLS configuration
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    # SSL/TLS
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+
+    # CORS (configure for specific origins in production)
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://geo-climate.example.com"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+
+  hosts:
+    - host: api.geo-climate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls:
+    - secretName: geo-climate-prod-tls
+      hosts:
+        - api.geo-climate.example.com
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations:
+    # Add cloud provider annotations if needed
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/ROLE
+  name: geo-climate-sa
+
+# Security Context - Strict for production
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+      - ALL
+
+# Configuration
+config:
+  logLevel: INFO
+  apiWorkers: 4
+  modelRegistryPath: /models
+  modelCacheSize: 5
+
+# Secrets - MUST override all in production
+secrets:
+  # DO NOT commit actual secrets!
+  # Override with: helm install --set secrets.jwtSecretKey=$JWT_SECRET
+  jwtSecretKey: "CHANGE_ME_JWT_SECRET_PRODUCTION_32_CHARS_MIN"
+  defaultApiKey: "CHANGE_ME_API_KEY_PRODUCTION"
+
+# Monitoring - Full production monitoring stack
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+
+    # Prometheus configuration
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+      scrapeTimeout: 10s
+
+    # Alerting
+    alerting:
+      enabled: true
+      rules:
+        - alert: HighAPILatency
+          expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1.0
+          for: 10m
+          severity: warning
+        - alert: HighErrorRate
+          expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+          for: 5m
+          severity: critical
+
+  grafana:
+    enabled: true
+
+    # Grafana admin credentials
+    adminPassword: "CHANGE_ME_GRAFANA_PRODUCTION"
+
+    # Persistent storage
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: fast-ssd
+
+    # Dashboards
+    dashboards:
+      enabled: true
+
+# Node selector - Use dedicated nodes for production
+nodeSelector:
+  workload-type: api
+  environment: production
+
+# Tolerations - Tolerate production taints
+tolerations:
+  - key: "production"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+# Affinity - Strong anti-affinity for HA
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app
+              operator: In
+              values:
+                - geo-climate
+        topologyKey: kubernetes.io/hostname
+
+# Network Policy - Strict network isolation
+networkPolicy:
+  enabled: true
+
+  # Ingress rules
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  # Egress rules
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow HTTPS egress
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2  # At least 2 pods must be available during updates
+
+# Service Mesh
+serviceMesh:
+  enabled: false  # Enable if using Istio/Linkerd
+
+# Additional production settings
+production:
+  # Backup strategy
+  backup:
+    database:
+      enabled: true
+      schedule: "0 2 * * *"
+      retention: 30
+      encryption: true
+    models:
+      enabled: true
+      schedule: "0 3 * * 0"  # Weekly
+      retention: 12  # Keep 12 weeks
+
+  # Disaster recovery
+  dr:
+    enabled: true
+    crossRegionReplication: true
+    rto: 1h  # Recovery Time Objective
+    rpo: 5m  # Recovery Point Objective
+
+  # Compliance
+  compliance:
+    gdpr: true
+    hipaa: false
+    soc2: true
+
+  # SLA targets
+  sla:
+    availability: 99.9  # 99.9% uptime
+    latencyP95: 1000ms  # 95th percentile < 1s
+    errorRate: 0.1  # < 0.1% errors

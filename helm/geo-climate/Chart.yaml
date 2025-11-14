@@ -1,6 +1,8 @@
 apiVersion: v2
 name: geo-climate
-description: Geo Sentiment Climate - Air Quality Prediction Platform
+description: |
+  Geo Climate Air Quality Prediction Platform - Enterprise-grade ML platform
+  for predicting air quality metrics using geospatial and climate data.
 type: application
 version: 2.0.0
 appVersion: "2.0.0"
@@ -11,6 +13,12 @@ keywords:
   - prediction
   - fastapi
   - kubernetes
+  - geospatial
+  - climate
+  - prometheus
+  - grafana
+  - postgresql
+  - redis
 
 home: https://github.com/dogaaydinn/Geo_Sentiment_Climate
 sources:
@@ -21,8 +29,58 @@ maintainers:
     email: dogaa882@gmail.com
     url: https://linkedin.com/in/dogaaydin
 
-dependencies: []
+# Chart dependencies for production deployment
+dependencies:
+  # PostgreSQL - Production database
+  - name: postgresql
+    version: "13.2.24"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    tags:
+      - database
+
+  # Redis - Caching and rate limiting
+  - name: redis
+    version: "18.6.1"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+    tags:
+      - cache
+
+  # Prometheus Stack - Monitoring
+  - name: kube-prometheus-stack
+    version: "55.5.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.prometheus.enabled
+    tags:
+      - monitoring
 
 annotations:
-  category: Analytics
+  category: MachineLearning
   licenses: Apache-2.0
+
+  # Artifact Hub metadata
+  artifacthub.io/changes: |
+    - kind: added
+      description: Enterprise-grade production features
+    - kind: added
+      description: Comprehensive monitoring with Prometheus and Grafana
+    - kind: added
+      description: High availability with auto-scaling
+    - kind: added
+      description: Security features (RBAC, NetworkPolicy)
+
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "false"
+
+  # Images used
+  artifacthub.io/images: |
+    - name: api
+      image: ghcr.io/dogaaydinn/geo_sentiment_climate:latest
+    - name: postgres
+      image: postgres:15-alpine
+    - name: redis
+      image: redis:7-alpine
+
+# Minimum Kubernetes version
+kubeVersion: ">=1.24.0-0"

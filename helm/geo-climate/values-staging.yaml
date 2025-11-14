@@ -1,0 +1,308 @@
+# Staging Environment Values
+# Override default values for staging/pre-production deployment
+#
+# Staging should mirror production as closely as possible
+# but with reduced resources and relaxed SLAs
+#
+# Usage:
+#   helm install geo-climate ./helm/geo-climate \
+#     --namespace geo-climate-staging \
+#     --create-namespace \
+#     --values ./helm/geo-climate/values-staging.yaml
+
+# Global settings
+global:
+  namespace: geo-climate-staging
+  environment: staging
+
+# Application configuration
+app:
+  name: geo-climate
+  version: "2.0.0-staging"
+
+# API deployment
+api:
+  replicaCount: 2  # Reduced from production's 3
+
+  image:
+    repository: ghcr.io/dogaaydinn/geo_sentiment_climate
+    tag: staging
+    pullPolicy: Always
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8000
+    metricsPort: 9090
+
+  resources:
+    requests:
+      memory: "512Mi"  # Reduced from production
+      cpu: "250m"
+    limits:
+      memory: "2Gi"  # Reduced from production
+      cpu: "1000m"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10  # Reduced from production's 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    httpGet:
+      path: /health/live
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Staging-specific environment variables
+  env:
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: ENVIRONMENT
+      value: "staging"
+    - name: DEBUG
+      value: "false"
+    - name: ENABLE_CORS
+      value: "true"
+    - name: ENABLE_PROFILING
+      value: "true"  # Keep profiling in staging
+    - name: ENABLE_DETAILED_ERRORS
+      value: "true"  # More verbose errors in staging
+
+# PostgreSQL database
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 15-alpine
+
+  auth:
+    database: geo_climate_staging
+    username: postgres
+    # Override with --set postgresql.auth.password=<value>
+    password: "CHANGE_ME_STAGING"
+
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi  # Reduced from production
+      storageClass: fast-ssd
+
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+    # Enable backups in staging
+    backup:
+      enabled: true
+      schedule: "0 3 * * *"  # Daily at 3 AM
+      retention: 7  # Keep 7 days
+
+  # Enable replication in staging to test HA
+  replication:
+    enabled: false  # Optional: enable to test replication
+    replicas: 1
+
+# Redis cache
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi  # Reduced from production
+      storageClass: fast-ssd
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+  auth:
+    enabled: true
+    # Override with --set redis.auth.password=<value>
+    password: "CHANGE_ME_REDIS_STAGING"
+
+# Persistent storage
+persistence:
+  models:
+    enabled: true
+    size: 25Gi  # Reduced from production
+    storageClass: fast-ssd
+    accessMode: ReadWriteMany
+
+  data:
+    enabled: true
+    size: 50Gi  # Reduced from production
+    storageClass: fast-ssd
+    accessMode: ReadWriteMany
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging  # Staging certs
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "200"  # More lenient than prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Staging-specific: Allow CORS from anywhere
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+
+  hosts:
+    - host: api.staging.geo-climate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls:
+    - secretName: geo-climate-staging-tls
+      hosts:
+        - api.staging.geo-climate.example.com
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: geo-climate-sa
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Configuration
+config:
+  logLevel: INFO
+  apiWorkers: 2
+  modelRegistryPath: /models
+  modelCacheSize: 3
+
+# Secrets (override with external secrets in actual deployment)
+secrets:
+  # DO NOT commit actual secrets
+  # Use: helm install --set secrets.jwtSecretKey=<value>
+  jwtSecretKey: "CHANGE_ME_JWT_STAGING"
+  defaultApiKey: "CHANGE_ME_API_KEY_STAGING"
+
+# Monitoring
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+
+    # Prometheus configuration
+    serviceMonitor:
+      enabled: true
+      interval: 30s  # Slightly longer interval than prod
+      scrapeTimeout: 10s
+
+  grafana:
+    enabled: true
+
+    # Grafana configuration
+    adminPassword: "CHANGE_ME_GRAFANA_STAGING"
+
+    # Persistent storage for Grafana
+    persistence:
+      enabled: true
+      size: 5Gi
+
+# Node selector - None for staging (use any available nodes)
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity - Prefer spreading across nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - geo-climate
+          topologyKey: kubernetes.io/hostname
+
+# Network Policy
+networkPolicy:
+  enabled: true
+
+  # Allow ingress from anywhere in staging
+  ingress:
+    - from:
+        - namespaceSelector: {}
+
+  # Allow all egress in staging
+  egress:
+    - to:
+        - namespaceSelector: {}
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1  # At least 1 pod must be available
+
+# Service Mesh (if using Istio/Linkerd)
+serviceMesh:
+  enabled: false  # Optional in staging
+
+# Additional staging-specific settings
+staging:
+  # Enable performance testing
+  enableLoadTesting: true
+
+  # Enable synthetic monitoring
+  enableSyntheticMonitoring: true
+
+  # Data anonymization (for production data copies)
+  anonymizeData: true
+
+  # Feature flags for testing
+  featureFlags:
+    newPredictionAlgorithm: true
+    enhancedCaching: true
+    experimentalAPI: true
+
+  # Testing tools
+  testing:
+    # Deploy Locust for load testing
+    locust:
+      enabled: false
+      replicas: 1
+
+    # Deploy Selenium for E2E tests
+    selenium:
+      enabled: false

@@ -1,0 +1,434 @@
+# CI/CD Pipeline for Geo Climate Platform
+#
+# This workflow handles:
+# - Continuous Integration: Test, lint, build, and push Docker images
+# - Continuous Deployment: Deploy to dev, staging, and production
+#
+# Triggers:
+# - Push to main: Deploy to dev
+# - Push tag v*: Deploy to staging and production
+# - Pull request: Run tests only
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Job 1: Lint and Test
+  # ============================================================================
+  test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: |
+          ruff check source/ tests/
+
+      - name: Format check with black
+        run: |
+          black --check source/ tests/
+
+      - name: Type check with mypy
+        run: |
+          mypy source/
+
+      - name: Security check with bandit
+        run: |
+          bandit -r source/ -ll
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            --cov=source \
+            --cov-report=xml \
+            --cov-report=term \
+            -v
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ \
+            --cov=source \
+            --cov-append \
+            --cov-report=xml \
+            --cov-report=term \
+            -v
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # ============================================================================
+  # Job 2: Build and Push Docker Image
+  # ============================================================================
+  build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ============================================================================
+  # Job 3: Deploy to Development
+  # ============================================================================
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+
+    environment:
+      name: development
+      url: https://api.dev.geo-climate.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.3'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > $HOME/.kube/config
+
+      - name: Deploy to development
+        run: |
+          helm upgrade --install geo-climate ./helm/geo-climate \
+            --namespace geo-climate-dev \
+            --create-namespace \
+            --values ./helm/geo-climate/values-dev.yaml \
+            --set api.image.tag=develop \
+            --set postgresql.auth.password=${{ secrets.DB_PASSWORD_DEV }} \
+            --set secrets.jwtSecretKey=${{ secrets.JWT_SECRET_DEV }} \
+            --wait \
+            --timeout 10m
+
+      - name: Run smoke tests
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=geo-climate \
+            -n geo-climate-dev \
+            --timeout=300s
+
+          # Test health endpoint
+          kubectl run curl --image=curlimages/curl:latest --rm -i --restart=Never -n geo-climate-dev -- \
+            curl -f http://geo-climate-api/health
+
+  # ============================================================================
+  # Job 4: Deploy to Staging
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    environment:
+      name: staging
+      url: https://api.staging.geo-climate.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.3'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+
+      - name: Extract version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install geo-climate ./helm/geo-climate \
+            --namespace geo-climate-staging \
+            --create-namespace \
+            --values ./helm/geo-climate/values-staging.yaml \
+            --set api.image.tag=${{ steps.get_version.outputs.VERSION }} \
+            --set postgresql.auth.password=${{ secrets.DB_PASSWORD_STAGING }} \
+            --set redis.auth.password=${{ secrets.REDIS_PASSWORD_STAGING }} \
+            --set secrets.jwtSecretKey=${{ secrets.JWT_SECRET_STAGING }} \
+            --wait \
+            --timeout 15m
+
+      - name: Run integration tests
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=geo-climate \
+            -n geo-climate-staging \
+            --timeout=300s
+
+          # Run comprehensive integration tests
+          kubectl run integration-tests \
+            --image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }} \
+            --rm -i --restart=Never \
+            -n geo-climate-staging \
+            -- pytest tests/integration/ -v
+
+      - name: Run load tests
+        run: |
+          # Run Locust load tests
+          kubectl run locust \
+            --image=locustio/locust:latest \
+            --rm -i --restart=Never \
+            -n geo-climate-staging \
+            -- locust -f /tests/load/locustfile.py --headless -u 100 -r 10 -t 5m
+
+  # ============================================================================
+  # Job 5: Deploy to Production
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    environment:
+      name: production
+      url: https://api.geo-climate.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.3'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+
+      - name: Extract version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create backup before deployment
+        run: |
+          # Trigger database backup
+          kubectl create job --from=cronjob/postgres-backup backup-pre-deploy-$(date +%s) -n geo-climate
+
+      - name: Deploy to production (canary)
+        run: |
+          # Deploy with canary strategy
+          helm upgrade --install geo-climate ./helm/geo-climate \
+            --namespace geo-climate \
+            --create-namespace \
+            --values ./helm/geo-climate/values-prod.yaml \
+            --set api.image.tag=${{ steps.get_version.outputs.VERSION }} \
+            --set api.replicaCount=1 \
+            --set postgresql.auth.password=${{ secrets.DB_PASSWORD_PROD }} \
+            --set redis.auth.password=${{ secrets.REDIS_PASSWORD_PROD }} \
+            --set secrets.jwtSecretKey=${{ secrets.JWT_SECRET_PROD }} \
+            --wait \
+            --timeout 15m
+
+      - name: Monitor canary deployment
+        run: |
+          # Wait and monitor canary pod
+          sleep 300
+
+          # Check error rate
+          ERROR_RATE=$(kubectl exec -n geo-climate prometheus-0 -- \
+            promtool query instant 'rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])' | \
+            grep -oP '\d+\.\d+')
+
+          if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+            echo "Error rate too high: $ERROR_RATE"
+            exit 1
+          fi
+
+      - name: Complete production deployment
+        run: |
+          # Scale to full production replicas
+          helm upgrade geo-climate ./helm/geo-climate \
+            --namespace geo-climate \
+            --values ./helm/geo-climate/values-prod.yaml \
+            --set api.image.tag=${{ steps.get_version.outputs.VERSION }} \
+            --set postgresql.auth.password=${{ secrets.DB_PASSWORD_PROD }} \
+            --set redis.auth.password=${{ secrets.REDIS_PASSWORD_PROD }} \
+            --set secrets.jwtSecretKey=${{ secrets.JWT_SECRET_PROD }} \
+            --wait \
+            --timeout 20m
+
+      - name: Verify production deployment
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=geo-climate \
+            -n geo-climate \
+            --timeout=600s
+
+          # Run production smoke tests
+          kubectl run smoke-tests \
+            --image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }} \
+            --rm -i --restart=Never \
+            -n geo-climate \
+            -- pytest tests/smoke/ -v
+
+      - name: Send deployment notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Production deployment completed!
+            Version: ${{ steps.get_version.outputs.VERSION }}
+            URL: https://api.geo-climate.example.com
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()
+
+  # ============================================================================
+  # Job 6: Rollback on Failure
+  # ============================================================================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure()
+
+    steps:
+      - name: Rollback production deployment
+        run: |
+          helm rollback geo-climate -n geo-climate
+
+      - name: Send rollback notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              text: `:warning: Production deployment failed and was rolled back!`,
+              attachments: [{
+                color: 'danger',
+                text: 'Please investigate the deployment failure.'
+              }]
+            }
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
