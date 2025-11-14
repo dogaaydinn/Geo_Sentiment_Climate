@@ -1,9 +1,29 @@
-"""Locust load testing for Geo Climate API."""
+"""
+Enterprise-grade Locust load testing for Geo Climate API.
+
+Performance Targets:
+- Normal Load: 1,000 req/s @ < 100ms p95
+- Peak Load: 5,000 req/s @ < 200ms p95
+- Stress Test: 10,000 req/s @ < 500ms p95
+- Endurance: 500 req/s for 24h (no leaks)
+
+Usage Examples:
+    # Normal load (1 hour)
+    locust -f locustfile.py --users=1000 --spawn-rate=100 --run-time=1h
+
+    # Peak load stress test
+    locust -f locustfile.py --users=5000 --spawn-rate=500 --run-time=30m
+
+    # Headless with HTML report
+    locust -f locustfile.py --users=1000 --spawn-rate=100 --run-time=1h --headless --html=report.html
+
+    # Distributed load testing
+    locust -f locustfile.py --master
+    locust -f locustfile.py --worker --master-host=<master-ip>
+"""
 from locust import HttpUser, task, between, events
 import random
 import json
-
-
 class GeoClimateUser(HttpUser):
     """Simulated user for load testing."""
     wait_time = between(1, 3)  # Wait 1-3 seconds between requests
