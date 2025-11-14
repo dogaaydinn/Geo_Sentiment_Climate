@@ -184,15 +184,15 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     ).first()
 
     if not user:
-        logger.warning("authentication_failed", username=username, reason="user_not_found")
+        logger.warning("authentication_failed", reason="invalid_credentials")
         return None
 
     if not verify_password(password, user.hashed_password):
-        logger.warning("authentication_failed", username=username, reason="invalid_password")
+        logger.warning("authentication_failed", reason="invalid_credentials")
         return None
 
     if not user.is_active:
-        logger.warning("authentication_failed", username=username, reason="inactive_user")
+        logger.warning("authentication_failed", reason="invalid_credentials")
         return None
 
     # Update last login
