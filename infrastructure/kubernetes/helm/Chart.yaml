@@ -1,0 +1,14 @@
+apiVersion: v2
+name: geo-climate
+description: Enterprise Geo Sentiment Climate Platform
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+keywords:
+  - ml
+  - air-quality
+  - prediction
+  - geospatial
+maintainers:
+  - name: Doğa Aydın
+    email: dogaa882@gmail.com
