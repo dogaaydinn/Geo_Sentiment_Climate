@@ -12,7 +12,6 @@ Tests cover:
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-import json
 
 
 @pytest.mark.integration
