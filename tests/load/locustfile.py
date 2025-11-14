@@ -24,7 +24,6 @@ Usage Examples:
 from locust import HttpUser, task, between, events
 import random
 import json
-import time
 from typing import Dict, List
 
 
