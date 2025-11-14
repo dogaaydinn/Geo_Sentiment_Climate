@@ -11,9 +11,6 @@ Tests cover:
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-from typing import Dict, List
-
-
 @pytest.mark.integration
 @pytest.mark.api
 @pytest.mark.asyncio
