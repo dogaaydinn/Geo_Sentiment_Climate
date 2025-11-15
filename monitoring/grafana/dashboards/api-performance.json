@@ -1,0 +1,449 @@
+{
+  "dashboard": {
+    "title": "API Performance - Geo Climate Platform",
+    "tags": ["api", "performance", "sre"],
+    "timezone": "utc",
+    "editable": true,
+    "hideControls": false,
+    "graphTooltip": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (RPS)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])) by (method, endpoint)",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m]))",
+            "legendFormat": "Total RPS",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Requests/sec"
+          }
+        ],
+        "alert": {
+          "name": "High Request Rate",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [5000],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["B", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "60s",
+          "handler": 1,
+          "message": "Request rate exceeded 5000 req/s",
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 2,
+        "title": "Response Time - P50, P95, P99",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, endpoint))",
+            "legendFormat": "P50 - {{endpoint}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, endpoint))",
+            "legendFormat": "P95 - {{endpoint}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, endpoint))",
+            "legendFormat": "P99 - {{endpoint}}",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Duration"
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 0.1,
+            "colorMode": "custom",
+            "op": "gt",
+            "fill": true,
+            "line": true,
+            "yaxis": "left"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 8, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])) * 100",
+            "legendFormat": "5xx Error Rate %",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"4..\"}[5m])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])) * 100",
+            "legendFormat": "4xx Error Rate %",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Error Rate"
+          }
+        ],
+        "alert": {
+          "name": "High Error Rate",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [1],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "60s",
+          "handler": 1,
+          "message": "Error rate exceeded 1%",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Requests In Progress",
+        "type": "graph",
+        "gridPos": { "x": 8, "y": 8, "w": 8, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(http_requests_in_progress{job=\"geo-climate-api\"}) by (endpoint)",
+            "legendFormat": "{{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Concurrent Requests"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Request Size Distribution",
+        "type": "heatmap",
+        "gridPos": { "x": 16, "y": 8, "w": 8, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(http_request_size_bytes_bucket{job=\"geo-climate-api\"}[1m])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}",
+            "refId": "A"
+          }
+        ],
+        "dataFormat": "tsbuckets",
+        "yAxis": {
+          "format": "bytes"
+        }
+      },
+      {
+        "id": 6,
+        "title": "Top 10 Slowest Endpoints (P95)",
+        "type": "table",
+        "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, endpoint, method)))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "endpoint": "Endpoint",
+                "method": "Method",
+                "Value": "P95 Latency (s)"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Prediction Endpoint Performance",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(model_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P95 - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[5m])",
+            "legendFormat": "Success Rate - {{model_name}}",
+            "refId": "B",
+            "yAxisIndex": 1
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Latency"
+          },
+          {
+            "format": "reqps",
+            "label": "Success Rate"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Rate Limiting - Throttled Requests",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 22, "w": 8, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\",status=\"429\"}[5m])) by (endpoint)",
+            "legendFormat": "{{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Throttled Requests/sec"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "API Availability (%)",
+        "type": "stat",
+        "gridPos": { "x": 8, "y": 22, "w": 4, "h": 6 },
+        "targets": [
+          {
+            "expr": "(1 - (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])))) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "justifyMode": "center",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 99, "color": "yellow" },
+                { "value": 99.9, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Avg Response Time",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 22, "w": 4, "h": 6 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le)) * 1000",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 50, "color": "yellow" },
+                { "value": 100, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Total Requests (24h)",
+        "type": "stat",
+        "gridPos": { "x": 16, "y": 22, "w": 4, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Error Breakdown by Status Code",
+        "type": "piechart",
+        "gridPos": { "x": 20, "y": 22, "w": 4, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status=~\"[45]..\"}[1h])) by (status)",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "pieType": "donut",
+          "displayLabels": ["name", "percent"]
+        }
+      },
+      {
+        "id": 13,
+        "title": "Request/Response Size Over Time",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 28, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_request_size_bytes_sum{job=\"geo-climate-api\"}[5m])) / sum(rate(http_request_size_bytes_count{job=\"geo-climate-api\"}[5m]))",
+            "legendFormat": "Avg Request Size",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(http_response_size_bytes_sum{job=\"geo-climate-api\"}[5m])) / sum(rate(http_response_size_bytes_count{job=\"geo-climate-api\"}[5m]))",
+            "legendFormat": "Avg Response Size",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "bytes",
+            "label": "Size"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "API Saturation - Connection Pool",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 28, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "database_connections_active{job=\"geo-climate-api\"} / database_connections_max{job=\"geo-climate-api\"} * 100",
+            "legendFormat": "DB Connection Pool Utilization %",
+            "refId": "A"
+          },
+          {
+            "expr": "redis_connections_active{job=\"geo-climate-api\"} / redis_connections_max{job=\"geo-climate-api\"} * 100",
+            "legendFormat": "Redis Connection Pool Utilization %",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Pool Utilization",
+            "max": 100,
+            "min": 0
+          }
+        ],
+        "alert": {
+          "name": "Connection Pool Saturation",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [80],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "or"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "60s",
+          "handler": 1,
+          "message": "Connection pool utilization above 80%"
+        }
+      }
+    ]
+  }
+}

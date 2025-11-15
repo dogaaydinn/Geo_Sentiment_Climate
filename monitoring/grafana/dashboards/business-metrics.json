@@ -1,0 +1,360 @@
+{
+  "dashboard": {
+    "title": "Business Metrics - Geo Climate Platform",
+    "tags": ["business", "users", "revenue", "growth"],
+    "timezone": "utc",
+    "editable": true,
+    "refresh": "5m",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Daily Active Users (DAU)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[1d]) > 0) by (user_id)",
+            "legendFormat": "DAU",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Users"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Monthly Active Users (MAU)",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[30d]) > 0) by (user_id)",
+            "legendFormat": "MAU",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Users"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "User Tier Distribution",
+        "type": "piechart",
+        "gridPos": { "x": 0, "y": 8, "w": 6, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(active_users{job=\"geo-climate-api\"}) by (tier)",
+            "legendFormat": "{{tier}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "pieType": "donut",
+          "displayLabels": ["name", "value", "percent"]
+        }
+      },
+      {
+        "id": 4,
+        "title": "API Quota Usage by Tier",
+        "type": "graph",
+        "gridPos": { "x": 6, "y": 8, "w": 18, "h": 6 },
+        "targets": [
+          {
+            "expr": "avg(api_quota_usage{job=\"geo-climate-api\"}) by (tier)",
+            "legendFormat": "{{tier}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Quota Usage",
+            "max": 100,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "New User Registrations",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 14, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "increase(user_registrations_total{job=\"geo-climate-api\"}[1d])",
+            "legendFormat": "Daily Registrations",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "New Users"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "User Churn Rate",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 14, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "(count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[30d] offset 30d) > 0) - count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[30d]) > 0)) / count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[30d] offset 30d) > 0) * 100",
+            "legendFormat": "Monthly Churn %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Churn Rate"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "API Calls per User (Avg)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 20, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])) / count(active_users{job=\"geo-climate-api\"})",
+            "legendFormat": "Avg API Calls/User/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "API Calls/User"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Revenue Metrics (Estimated)",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 20, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(user_tier_revenue{job=\"geo-climate-api\"}) by (tier)",
+            "legendFormat": "{{tier}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "currencyUSD",
+            "label": "Revenue"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "User Engagement Score",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 26, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{job=\"geo-climate-api\"}[1d])) / count(active_users{job=\"geo-climate-api\"})) * (count(count_over_time(http_requests_total{job=\"geo-climate-api\"}[7d]) > 0) / count(active_users{job=\"geo-climate-api\"}))",
+            "legendFormat": "Engagement Score",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Score"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Feature Usage Distribution",
+        "type": "bargauge",
+        "gridPos": { "x": 12, "y": 26, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "topk(10, sum(increase(http_requests_total{job=\"geo-climate-api\"}[24h])) by (endpoint))",
+            "legendFormat": "{{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient"
+        }
+      },
+      {
+        "id": 11,
+        "title": "Conversion Funnel",
+        "type": "table",
+        "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(user_registration_started{job=\"geo-climate-api\"})",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "sum(user_email_verified{job=\"geo-climate-api\"})",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "sum(user_first_api_call{job=\"geo-climate-api\"})",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          },
+          {
+            "expr": "sum(user_upgraded_tier{job=\"geo-climate-api\"})",
+            "format": "table",
+            "instant": true,
+            "refId": "D"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge"
+          },
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "Value #A": "Registration Started",
+                "Value #B": "Email Verified",
+                "Value #C": "First API Call",
+                "Value #D": "Upgraded to Paid"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Geographic Distribution",
+        "type": "geomap",
+        "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(active_users{job=\"geo-climate-api\"}) by (country)",
+            "legendFormat": "{{country}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "view": {
+            "id": "coords",
+            "lat": 40,
+            "lon": -100,
+            "zoom": 4
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Total Active Users",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 40, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(active_users{job=\"geo-climate-api\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 14,
+        "title": "User Growth Rate (7d)",
+        "type": "stat",
+        "gridPos": { "x": 6, "y": 40, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "(sum(active_users{job=\"geo-climate-api\"}) - sum(active_users{job=\"geo-climate-api\"} offset 7d)) / sum(active_users{job=\"geo-climate-api\"} offset 7d) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": -10, "color": "red" },
+                { "value": 0, "color": "yellow" },
+                { "value": 5, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Paid User %",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 40, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(active_users{job=\"geo-climate-api\",tier=~\"basic|pro|enterprise\"}) / sum(active_users{job=\"geo-climate-api\"}) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 16,
+        "title": "MRR (Monthly Recurring Revenue)",
+        "type": "stat",
+        "gridPos": { "x": 18, "y": 40, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(user_tier_revenue{job=\"geo-climate-api\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 0
+          }
+        }
+      }
+    ]
+  }
+}

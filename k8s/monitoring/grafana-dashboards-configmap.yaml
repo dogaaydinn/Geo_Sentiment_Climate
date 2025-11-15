@@ -1,0 +1,21 @@
+---
+# ConfigMap containing all Grafana dashboards for auto-provisioning
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+    dashboards: "true"
+binaryData:
+  system-overview.json: |-
+$(base64 -w 0 /home/user/Geo_Sentiment_Climate/monitoring/grafana/dashboards/geo_climate_overview.json)
+  api-performance.json: |-
+$(base64 -w 0 /home/user/Geo_Sentiment_Climate/monitoring/grafana/dashboards/api-performance.json)
+  ml-model-performance.json: |-
+$(base64 -w 0 /home/user/Geo_Sentiment_Climate/monitoring/grafana/dashboards/ml-model-performance.json)
+  business-metrics.json: |-
+$(base64 -w 0 /home/user/Geo_Sentiment_Climate/monitoring/grafana/dashboards/business-metrics.json)
+  slo-error-budget.json: |-
+$(base64 -w 0 /home/user/Geo_Sentiment_Climate/monitoring/grafana/dashboards/slo-error-budget.json)

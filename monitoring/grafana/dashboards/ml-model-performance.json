@@ -1,0 +1,400 @@
+{
+  "dashboard": {
+    "title": "ML Model Performance - Geo Climate Platform",
+    "tags": ["ml", "models", "ai", "performance"],
+    "timezone": "utc",
+    "editable": true,
+    "refresh": "1m",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Model Prediction Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[5m])) by (model_name, model_version)",
+            "legendFormat": "{{model_name}} v{{model_version}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Predictions/sec"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Model Inference Latency (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(model_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P50 - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(model_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P95 - {{model_name}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(model_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P99 - {{model_name}}",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ms",
+            "label": "Latency"
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 0.05,
+            "colorMode": "custom",
+            "op": "gt",
+            "fill": true,
+            "line": true
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Model Success vs Error Rate",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[5m])) by (model_name)",
+            "legendFormat": "Success - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"error\"}[5m])) by (model_name)",
+            "legendFormat": "Error - {{model_name}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "reqps",
+            "label": "Rate"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Model Error Rate %",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 8, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"error\"}[5m])) by (model_name) / sum(rate(model_predictions_total{job=\"geo-climate-api\"}[5m])) by (model_name) * 100",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Error Rate",
+            "max": 10,
+            "min": 0
+          }
+        ],
+        "alert": {
+          "name": "High Model Error Rate",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [5],
+                "type": "gt"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "frequency": "60s",
+          "message": "Model error rate exceeded 5%"
+        }
+      },
+      {
+        "id": 5,
+        "title": "Prediction Confidence Distribution",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(model_prediction_confidence_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P50 Confidence - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(model_prediction_confidence_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P95 Confidence - {{model_name}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percentunit",
+            "label": "Confidence",
+            "max": 1,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Model Cache Hit Rate",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(model_cache_hits{job=\"geo-climate-api\"}[5m])) by (model_name) / (sum(rate(model_cache_hits{job=\"geo-climate-api\"}[5m])) by (model_name) + sum(rate(model_cache_misses{job=\"geo-climate-api\"}[5m])) by (model_name)) * 100",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Cache Hit Rate",
+            "max": 100,
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Feature Drift Detection - Mean Values",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 22, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "avg_over_time(model_feature_values_sum{job=\"geo-climate-api\"}[1h]) / avg_over_time(model_feature_values_count{job=\"geo-climate-api\"}[1h])",
+            "legendFormat": "{{feature_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "Feature Value"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Model Load Time",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 22, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(model_load_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, model_name))",
+            "legendFormat": "P95 Load Time - {{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Load Duration"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Active Model Instances",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 28, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "count(model_loaded{job=\"geo-climate-api\"} == 1) by (model_name)",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 10,
+        "title": "Total Predictions (24h)",
+        "type": "stat",
+        "gridPos": { "x": 6, "y": 28, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(increase(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Avg Confidence Score",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 28, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(model_prediction_confidence_bucket{job=\"geo-climate-api\"}[5m])) by (le)) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 70, "color": "yellow" },
+                { "value": 85, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Model Version Distribution",
+        "type": "piechart",
+        "gridPos": { "x": 18, "y": 28, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(increase(model_predictions_total{job=\"geo-climate-api\"}[1h])) by (model_version)",
+            "legendFormat": "v{{model_version}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "pieType": "donut",
+          "displayLabels": ["name", "percent"]
+        }
+      },
+      {
+        "id": 13,
+        "title": "Model Memory Usage",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 32, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "model_memory_bytes{job=\"geo-climate-api\"} / 1024 / 1024",
+            "legendFormat": "{{model_name}} - {{model_version}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "mbytes",
+            "label": "Memory"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Batch Prediction Performance",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 32, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(batch_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le, batch_size))",
+            "legendFormat": "P95 - Batch {{batch_size}}",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(batch_predictions_total{job=\"geo-climate-api\"}[5m])) by (batch_size)",
+            "legendFormat": "Rate - Batch {{batch_size}}",
+            "refId": "B",
+            "yAxisIndex": 1
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Latency"
+          },
+          {
+            "format": "reqps",
+            "label": "Rate"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Model A/B Test Performance Comparison",
+        "type": "table",
+        "gridPos": { "x": 0, "y": 38, "w": 24, "h": 8 },
+        "targets": [
+          {
+            "expr": "avg(histogram_quantile(0.95, sum(rate(model_prediction_duration_seconds_bucket{job=\"geo-climate-api\"}[1h])) by (le, model_version))) by (model_version)",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "avg(histogram_quantile(0.50, sum(rate(model_prediction_confidence_bucket{job=\"geo-climate-api\"}[1h])) by (le, model_version))) by (model_version)",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[1h])) by (model_version) / sum(rate(model_predictions_total{job=\"geo-climate-api\"}[1h])) by (model_version) * 100",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "model_version": "Model Version",
+                "Value #A": "P95 Latency (s)",
+                "Value #B": "Avg Confidence",
+                "Value #C": "Success Rate %"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

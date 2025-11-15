@@ -1,0 +1,645 @@
+---
+# Grafana Production Deployment for Geo Climate Platform
+# Enterprise-grade visualization and monitoring
+#
+# Features:
+# - StatefulSet for persistent dashboards
+# - Auto-provisioned data sources (Prometheus, Loki, Jaeger)
+# - Pre-configured dashboards
+# - OAuth/LDAP authentication ready
+# - High availability (3 replicas)
+# - Persistent storage
+# - SSL/TLS enabled
+# - Alert notification channels
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    app: grafana
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # Prometheus - Metrics
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: 15s
+          queryTimeout: 60s
+          httpMethod: POST
+        version: 1
+
+      # Loki - Logs
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: false
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "traceID=(\\w+)"
+              name: TraceID
+              url: '$${__value.raw}'
+        version: 1
+
+      # Jaeger - Traces
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger-query:16686
+        editable: false
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['job', 'instance', 'pod', 'namespace']
+            mappedTags: [{ key: 'service.name', value: 'service' }]
+            mapTagNamesEnabled: false
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '1h'
+            filterByTraceID: false
+            filterBySpanID: false
+        version: 1
+
+      # Tempo (if using instead of Jaeger)
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3100
+        editable: false
+        uid: tempo
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['job', 'instance', 'pod', 'namespace']
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+        version: 1
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-providers
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: 'Geo Climate'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+      - name: 'infrastructure'
+        orgId: 1
+        folder: 'Infrastructure'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/infrastructure
+
+      - name: 'application'
+        orgId: 1
+        folder: 'Application'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/application
+
+      - name: 'ml'
+        orgId: 1
+        folder: 'ML Models'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/ml
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: monitoring
+data:
+  grafana.ini: |
+    [server]
+    protocol = http
+    http_port = 3000
+    domain = grafana.geo-climate.example.com
+    root_url = https://grafana.geo-climate.example.com
+    enable_gzip = true
+
+    [database]
+    type = postgres
+    host = postgres:5432
+    name = grafana
+    user = grafana
+    password = ${GRAFANA_DB_PASSWORD}
+    ssl_mode = disable
+    max_open_conn = 300
+    max_idle_conn = 50
+
+    [session]
+    provider = postgres
+    provider_config = user=grafana password=${GRAFANA_DB_PASSWORD} host=postgres port=5432 dbname=grafana sslmode=disable
+    cookie_name = grafana_session
+    cookie_secure = true
+    session_life_time = 86400
+
+    [security]
+    admin_user = admin
+    admin_password = ${GRAFANA_ADMIN_PASSWORD}
+    secret_key = ${GRAFANA_SECRET_KEY}
+    disable_gravatar = true
+    cookie_secure = true
+    cookie_samesite = strict
+    allow_embedding = false
+    strict_transport_security = true
+    x_content_type_options = true
+    x_xss_protection = true
+
+    [users]
+    allow_sign_up = false
+    allow_org_create = false
+    auto_assign_org = true
+    auto_assign_org_role = Viewer
+    default_theme = dark
+
+    [auth]
+    disable_login_form = false
+    disable_signout_menu = false
+    oauth_auto_login = false
+
+    [auth.anonymous]
+    enabled = false
+
+    [auth.basic]
+    enabled = true
+
+    [auth.generic_oauth]
+    enabled = true
+    name = OAuth
+    allow_sign_up = true
+    client_id = ${OAUTH_CLIENT_ID}
+    client_secret = ${OAUTH_CLIENT_SECRET}
+    scopes = openid profile email
+    auth_url = ${OAUTH_AUTH_URL}
+    token_url = ${OAUTH_TOKEN_URL}
+    api_url = ${OAUTH_API_URL}
+    role_attribute_path = contains(roles[*], 'admin') && 'Admin' || contains(roles[*], 'editor') && 'Editor' || 'Viewer'
+
+    [smtp]
+    enabled = true
+    host = ${SMTP_HOST}:${SMTP_PORT}
+    user = ${SMTP_USER}
+    password = ${SMTP_PASSWORD}
+    from_address = grafana@geo-climate.example.com
+    from_name = Geo Climate Grafana
+
+    [alerting]
+    enabled = true
+    execute_alerts = true
+
+    [metrics]
+    enabled = true
+    interval_seconds = 10
+
+    [log]
+    mode = console
+    level = info
+
+    [log.console]
+    format = json
+
+    [analytics]
+    reporting_enabled = false
+    check_for_updates = false
+
+    [snapshots]
+    external_enabled = false
+
+    [dashboards]
+    versions_to_keep = 20
+    min_refresh_interval = 5s
+    default_home_dashboard_path = /var/lib/grafana/dashboards/default/system-overview.json
+
+    [plugins]
+    enable_alpha = false
+    plugin_admin_enabled = true
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secrets
+  namespace: monitoring
+type: Opaque
+stringData:
+  admin-password: "change-me-in-production"
+  secret-key: "change-me-in-production-use-long-random-string"
+  db-password: "change-me-in-production"
+  oauth-client-id: "change-me"
+  oauth-client-secret: "change-me"
+  smtp-user: "change-me"
+  smtp-password: "change-me"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: monitoring
+spec:
+  serviceName: grafana
+  replicas: 3
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+        component: monitoring
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: grafana
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+        runAsNonRoot: true
+
+      initContainers:
+        # Download and setup dashboards
+        - name: download-dashboards
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -ex
+              mkdir -p /var/lib/grafana/dashboards/default
+              mkdir -p /var/lib/grafana/dashboards/infrastructure
+              mkdir -p /var/lib/grafana/dashboards/application
+              mkdir -p /var/lib/grafana/dashboards/ml
+
+              # Copy pre-configured dashboards from ConfigMap
+              if [ -d /dashboards ]; then
+                cp -r /dashboards/* /var/lib/grafana/dashboards/
+              fi
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+            - name: dashboard-files
+              mountPath: /dashboards
+
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          env:
+            - name: GF_PATHS_CONFIG
+              value: /etc/grafana/grafana.ini
+            - name: GF_PATHS_DATA
+              value: /var/lib/grafana
+            - name: GF_PATHS_LOGS
+              value: /var/log/grafana
+            - name: GF_PATHS_PLUGINS
+              value: /var/lib/grafana/plugins
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+
+            # Secrets from Secret
+            - name: GRAFANA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: admin-password
+            - name: GRAFANA_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: secret-key
+            - name: GRAFANA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: db-password
+            - name: OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: oauth-client-id
+                  optional: true
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: oauth-client-secret
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: smtp-user
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: smtp-password
+                  optional: true
+
+            # Environment-specific
+            - name: SMTP_HOST
+              value: "smtp.gmail.com"
+            - name: SMTP_PORT
+              value: "587"
+            - name: OAUTH_AUTH_URL
+              value: "https://oauth.example.com/authorize"
+            - name: OAUTH_TOKEN_URL
+              value: "https://oauth.example.com/token"
+            - name: OAUTH_API_URL
+              value: "https://oauth.example.com/userinfo"
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+            - name: grafana-config
+              mountPath: /etc/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboard-providers
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-files
+              mountPath: /var/lib/grafana/dashboards
+
+      volumes:
+        - name: grafana-config
+          configMap:
+            name: grafana-config
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboard-providers
+          configMap:
+            name: grafana-dashboard-providers
+        - name: dashboard-files
+          configMap:
+            name: grafana-dashboards
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - grafana
+                topologyKey: kubernetes.io/hostname
+
+  volumeClaimTemplates:
+    - metadata:
+        name: grafana-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 50Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: grafana
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-headless
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: grafana
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  tls:
+    - hosts:
+        - grafana.geo-climate.example.com
+      secretName: grafana-tls-secret
+  rules:
+    - host: grafana.geo-climate.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grafana
+subjects:
+  - kind: ServiceAccount
+    name: grafana
+    namespace: monitoring
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: grafana
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: grafana
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

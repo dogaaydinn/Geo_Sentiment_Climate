@@ -1,0 +1,422 @@
+{
+  "dashboard": {
+    "title": "SLO & Error Budget - Geo Climate Platform",
+    "tags": ["slo", "sli", "error-budget", "reliability"],
+    "timezone": "utc",
+    "editable": true,
+    "refresh": "1m",
+    "time": {
+      "from": "now-30d",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "SLO: API Availability (99.9% Target)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "(1 - (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d])))) * 100",
+            "legendFormat": "30-day Availability",
+            "refId": "A"
+          },
+          {
+            "expr": "99.9",
+            "legendFormat": "SLO Target (99.9%)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Availability",
+            "max": 100,
+            "min": 99
+          }
+        ],
+        "alert": {
+          "name": "SLO Violation: Availability",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [99.9],
+                "type": "lt"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "frequency": "60s",
+          "message": "API availability below 99.9% SLO target"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Error Budget Remaining (30d)",
+        "type": "gauge",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+        "targets": [
+          {
+            "expr": "((99.9 - (1 - (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d])))) * 100) / (100 - 99.9)) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 20, "color": "yellow" },
+                { "value": 50, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Budget Burn Rate",
+        "type": "graph",
+        "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[1h])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[1h]))) / (1 - 0.999)",
+            "legendFormat": "1h Burn Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "(sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[6h])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[6h]))) / (1 - 0.999)",
+            "legendFormat": "6h Burn Rate",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percentunit",
+            "label": "Burn Rate"
+          }
+        ],
+        "alert": {
+          "name": "High Error Budget Burn Rate",
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [10],
+                "type": "gt"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "frequency": "60s",
+          "message": "Error budget burning too fast (>10x normal rate)"
+        }
+      },
+      {
+        "id": 4,
+        "title": "SLO: API Latency P95 (<100ms Target)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le)) * 1000",
+            "legendFormat": "P95 Latency",
+            "refId": "A"
+          },
+          {
+            "expr": "100",
+            "legendFormat": "SLO Target (100ms)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "ms",
+            "label": "Latency"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Latency SLO Compliance %",
+        "type": "gauge",
+        "gridPos": { "x": 12, "y": 8, "w": 6, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\",le=\"0.1\"}[30d])) / sum(rate(http_request_duration_seconds_count{job=\"geo-climate-api\"}[30d])) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 95, "color": "yellow" },
+                { "value": 99, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "SLO: Model Inference Success Rate (>99% Target)",
+        "type": "graph",
+        "gridPos": { "x": 18, "y": 8, "w": 6, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(model_predictions_total{job=\"geo-climate-api\",status=\"success\"}[30d])) / sum(rate(model_predictions_total{job=\"geo-climate-api\"}[30d])) * 100",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "99",
+            "legendFormat": "SLO Target (99%)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "Success Rate",
+            "max": 100,
+            "min": 98
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "SLI Dashboard - 4 Golden Signals",
+        "type": "table",
+        "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m]))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"geo-climate-api\"}[5m])) by (le)) * 1000",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[5m])) * 100",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          },
+          {
+            "expr": "avg(rate(process_cpu_seconds_total{job=\"geo-climate-api\"}[5m])) * 100",
+            "format": "table",
+            "instant": true,
+            "refId": "D"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge"
+          },
+          {
+            "id": "organize",
+            "options": {
+              "renameByName": {
+                "Value #A": "Traffic (req/s)",
+                "Value #B": "Latency P95 (ms)",
+                "Value #C": "Error Rate (%)",
+                "Value #D": "Saturation (CPU %)"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Multi-Window Error Budget Burn",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 24, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[1h])) / sum(increase(http_requests_total{job=\"geo-climate-api\"}[1h]))",
+            "legendFormat": "1h Window",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[6h])) / sum(increase(http_requests_total{job=\"geo-climate-api\"}[6h]))",
+            "legendFormat": "6h Window",
+            "refId": "B"
+          },
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[24h])) / sum(increase(http_requests_total{job=\"geo-climate-api\"}[24h]))",
+            "legendFormat": "24h Window",
+            "refId": "C"
+          },
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(increase(http_requests_total{job=\"geo-climate-api\"}[30d]))",
+            "legendFormat": "30d Window",
+            "refId": "D"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percentunit",
+            "label": "Error Rate"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "SLO Compliance by Endpoint",
+        "type": "heatmap",
+        "gridPos": { "x": 12, "y": 24, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum(increase(http_requests_total{job=\"geo-climate-api\",status!~\"5..\"}[1h])) by (endpoint) / sum(increase(http_requests_total{job=\"geo-climate-api\"}[1h])) by (endpoint) * 100",
+            "format": "heatmap",
+            "legendFormat": "{{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yAxis": {
+          "format": "percent"
+        }
+      },
+      {
+        "id": 10,
+        "title": "Uptime (30d)",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 30, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "(1 - (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d])))) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 3,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 99, "color": "yellow" },
+                { "value": 99.9, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Total Downtime (30d)",
+        "type": "stat",
+        "gridPos": { "x": 6, "y": 30, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d]))) * 30 * 24 * 60",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 43.2, "color": "yellow" },
+                { "value": 86.4, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "SLO Budget Days Remaining",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 30, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "((99.9 - (1 - (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d])))) * 100) / (100 - 99.9)) / (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[1d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[1d])))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "d",
+            "decimals": 1
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "MTBF (Mean Time Between Failures)",
+        "type": "stat",
+        "gridPos": { "x": 18, "y": 30, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "1 / (sum(rate(http_requests_total{job=\"geo-climate-api\",status=~\"5..\"}[30d])) / sum(rate(http_requests_total{job=\"geo-climate-api\"}[30d]))) / 60",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "decimals": 0
+          }
+        }
+      }
+    ]
+  }
+}
