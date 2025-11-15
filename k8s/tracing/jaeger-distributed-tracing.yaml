@@ -1,0 +1,640 @@
+# Jaeger Distributed Tracing Configuration
+# Complete OpenTelemetry-compatible distributed tracing setup
+#
+# Components:
+# - Jaeger Collector: Receives traces from applications
+# - Jaeger Query: Query service and UI
+# - Jaeger Agent: Optional sidecar for trace batching
+# - Elasticsearch/Cassandra: Trace storage backend
+#
+# Features:
+# - Service dependency visualization
+# - Performance monitoring
+# - Error tracking
+# - Request flow analysis
+#
+# Installation:
+#   kubectl create namespace observability
+#   kubectl apply -f k8s/tracing/jaeger-distributed-tracing.yaml
+
+---
+# ============================================================================
+# Jaeger Operator Installation (Recommended)
+# ============================================================================
+#
+# Install Jaeger Operator:
+#   kubectl create namespace observability
+#   kubectl create -f https://github.com/jaegertracing/jaeger-operator/releases/download/v1.51.0/jaeger-operator.yaml -n observability
+#
+# Or via Helm:
+#   helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+#   helm install jaeger-operator jaegertracing/jaeger-operator \
+#     --namespace observability \
+#     --create-namespace
+
+---
+# ============================================================================
+# Jaeger Instance with Elasticsearch Backend
+# ============================================================================
+
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: jaeger-production
+  namespace: observability
+spec:
+  strategy: production
+
+  # Storage configuration
+  storage:
+    type: elasticsearch
+    options:
+      es:
+        server-urls: http://elasticsearch:9200
+        index-prefix: jaeger
+        num-shards: 5
+        num-replicas: 1
+
+    # Elasticsearch deployment
+    elasticsearch:
+      nodeCount: 3
+      redundancyPolicy: SingleRedundancy
+      storage:
+        storageClassName: fast-ssd
+        size: 100Gi
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "500m"
+        limits:
+          memory: "4Gi"
+          cpu: "2000m"
+
+  # Collector configuration
+  collector:
+    replicas: 3
+    maxReplicas: 10
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    options:
+      collector:
+        num-workers: 100
+        queue-size: 5000
+
+  # Query service configuration
+  query:
+    replicas: 2
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+    options:
+      query:
+        base-path: /jaeger
+
+  # Agent configuration (optional sidecar)
+  agent:
+    strategy: DaemonSet
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "100m"
+
+  # Ingress for Jaeger UI
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - jaeger.geo-climate.example.com
+    tls:
+      - secretName: jaeger-tls
+        hosts:
+          - jaeger.geo-climate.example.com
+
+---
+# ============================================================================
+# OpenTelemetry Collector (Alternative/Additional)
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: observability
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      # OTLP receiver (gRPC and HTTP)
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      # Jaeger receiver (for backward compatibility)
+      jaeger:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:14250
+          thrift_http:
+            endpoint: 0.0.0.0:14268
+          thrift_compact:
+            endpoint: 0.0.0.0:6831
+          thrift_binary:
+            endpoint: 0.0.0.0:6832
+
+      # Zipkin receiver
+      zipkin:
+        endpoint: 0.0.0.0:9411
+
+    processors:
+      # Batch processor for efficiency
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+
+      # Memory limiter
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+
+      # Resource detection
+      resourcedetection:
+        detectors: [env, system]
+
+      # Attributes processor
+      attributes:
+        actions:
+          - key: environment
+            value: production
+            action: insert
+
+    exporters:
+      # Jaeger exporter
+      jaeger:
+        endpoint: jaeger-production-collector:14250
+        tls:
+          insecure: true
+
+      # Prometheus exporter (for trace metrics)
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+
+      # Logging exporter (debug)
+      logging:
+        loglevel: info
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [memory_limiter, batch, resourcedetection, attributes]
+          exporters: [jaeger, prometheus, logging]
+
+---
+# OpenTelemetry Collector Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: otel-collector
+
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.91.0
+          args:
+            - --config=/conf/otel-collector-config.yaml
+
+          ports:
+            # OTLP gRPC
+            - containerPort: 4317
+              protocol: TCP
+            # OTLP HTTP
+            - containerPort: 4318
+              protocol: TCP
+            # Jaeger gRPC
+            - containerPort: 14250
+              protocol: TCP
+            # Jaeger thrift HTTP
+            - containerPort: 14268
+              protocol: TCP
+            # Jaeger thrift compact
+            - containerPort: 6831
+              protocol: UDP
+            # Jaeger thrift binary
+            - containerPort: 6832
+              protocol: UDP
+            # Zipkin
+            - containerPort: 9411
+              protocol: TCP
+            # Prometheus metrics
+            - containerPort: 8889
+              protocol: TCP
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 30
+
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+
+---
+# OpenTelemetry Collector Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  type: ClusterIP
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: jaeger-grpc
+      port: 14250
+      targetPort: 14250
+    - name: jaeger-thrift-http
+      port: 14268
+      targetPort: 14268
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+    - name: metrics
+      port: 8889
+      targetPort: 8889
+  selector:
+    app: otel-collector
+
+---
+# ============================================================================
+# Application Instrumentation
+# ============================================================================
+
+# Python/FastAPI Application with OpenTelemetry
+# Add to requirements.txt:
+#   opentelemetry-api
+#   opentelemetry-sdk
+#   opentelemetry-instrumentation-fastapi
+#   opentelemetry-exporter-otlp
+
+# Instrumentation code (source/api/tracing.py):
+#
+# from opentelemetry import trace
+# from opentelemetry.sdk.trace import TracerProvider
+# from opentelemetry.sdk.trace.export import BatchSpanProcessor
+# from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+# from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+# from opentelemetry.sdk.resources import Resource
+#
+# def setup_tracing(app):
+#     resource = Resource(attributes={
+#         "service.name": "geo-climate-api",
+#         "service.version": "2.0.0",
+#         "deployment.environment": "production"
+#     })
+#
+#     provider = TracerProvider(resource=resource)
+#     processor = BatchSpanProcessor(
+#         OTLPSpanExporter(
+#             endpoint="http://otel-collector.observability.svc.cluster.local:4317",
+#             insecure=True
+#         )
+#     )
+#     provider.add_span_processor(processor)
+#     trace.set_tracer_provider(provider)
+#
+#     # Instrument FastAPI
+#     FastAPIInstrumentor.instrument_app(app)
+#
+# # In main.py:
+# from source.api.tracing import setup_tracing
+# setup_tracing(app)
+
+---
+# ConfigMap for application tracing configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tracing-config
+  namespace: geo-climate
+data:
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "geo-climate-api"
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio"
+  OTEL_TRACES_SAMPLER_ARG: "0.1"  # Sample 10% of traces in production
+
+---
+# ============================================================================
+# Jaeger UI Access
+# ============================================================================
+
+# Service for Jaeger Query UI
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: observability
+spec:
+  type: ClusterIP
+  ports:
+    - name: query-http
+      port: 16686
+      targetPort: 16686
+  selector:
+    app.kubernetes.io/component: query
+
+---
+# Ingress for Jaeger UI
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
+spec:
+  tls:
+    - hosts:
+        - jaeger.geo-climate.example.com
+      secretName: jaeger-tls
+  rules:
+    - host: jaeger.geo-climate.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger-production-query
+                port:
+                  number: 16686
+
+---
+# ============================================================================
+# Grafana Integration for Trace Visualization
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-tracing
+  namespace: monitoring
+data:
+  jaeger-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger-production-query.observability.svc.cluster.local:16686
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            tags: ['trace_id']
+            mappedTags: [{ key: 'service.name', value: 'app' }]
+            mapTagNamesEnabled: true
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
+
+---
+# ============================================================================
+# Alerting on Traces
+# ============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tracing-alerts
+  namespace: observability
+spec:
+  groups:
+    - name: tracing
+      interval: 30s
+      rules:
+        - alert: HighTraceSampleRate
+          expr: |
+            rate(jaeger_collector_spans_received_total[5m]) > 10000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High trace ingestion rate"
+            description: "Jaeger collector is receiving > 10k spans/sec. Consider increasing resources or reducing sample rate."
+
+        - alert: SlowEndpoint
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_server_duration_bucket[5m])) by (le, endpoint)
+            ) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Slow endpoint detected"
+            description: "Endpoint {{ $labels.endpoint }} has P95 latency > 5s."
+
+---
+# ============================================================================
+# USAGE GUIDE
+# ============================================================================
+#
+# Accessing Jaeger UI:
+# -------------------
+# 1. Via Ingress: https://jaeger.geo-climate.example.com
+# 2. Via port-forward:
+#    kubectl port-forward -n observability svc/jaeger-production-query 16686:16686
+#    Open http://localhost:16686
+#
+#
+# Querying Traces:
+# ---------------
+# 1. Select service: geo-climate-api
+# 2. Select operation: GET /predict, POST /predict, etc.
+# 3. Set time range
+# 4. Add tags for filtering:
+#    - http.status_code=500 (errors only)
+#    - user_id=123 (specific user)
+#    - duration>1s (slow requests)
+# 5. Click "Find Traces"
+#
+#
+# Trace Analysis:
+# --------------
+# - Timeline view: See request flow through services
+# - Span details: View tags, logs, and baggage
+# - Service graph: Visualize dependencies
+# - Compare traces: Find performance regressions
+#
+#
+# Custom Spans in Code:
+# --------------------
+# from opentelemetry import trace
+#
+# tracer = trace.get_tracer(__name__)
+#
+# @tracer.start_as_current_span("predict_sentiment")
+# def predict_sentiment(text):
+#     span = trace.get_current_span()
+#     span.set_attribute("input.length", len(text))
+#
+#     # Your code here
+#     result = model.predict(text)
+#
+#     span.set_attribute("prediction.confidence", result.confidence)
+#     return result
+#
+#
+# Adding Span Events:
+# ------------------
+# span.add_event("Model loaded", {
+#     "model.name": "sentiment-v2",
+#     "model.size": "128MB"
+# })
+#
+#
+# Error Recording:
+# ---------------
+# try:
+#     result = risky_operation()
+# except Exception as e:
+#     span.record_exception(e)
+#     span.set_status(trace.Status(trace.StatusCode.ERROR))
+#     raise
+#
+#
+# Sampling Strategies:
+# -------------------
+# 1. Always sample (dev/staging):
+#    OTEL_TRACES_SAMPLER=always_on
+#
+# 2. Probabilistic sampling (production):
+#    OTEL_TRACES_SAMPLER=traceidratio
+#    OTEL_TRACES_SAMPLER_ARG=0.1  # 10%
+#
+# 3. Parent-based (default):
+#    OTEL_TRACES_SAMPLER=parentbased_traceidratio
+#    OTEL_TRACES_SAMPLER_ARG=0.1
+#
+# 4. Always sample errors:
+#    # Custom sampler in code
+#
+#
+# Performance Impact:
+# ------------------
+# - Sampling at 10%: <1% CPU overhead
+# - Sampling at 100%: ~2-5% CPU overhead
+# - Network: ~1KB per span
+# - Use head-based sampling for production
+#
+#
+# Best Practices:
+# --------------
+# 1. Use semantic conventions for span names
+# 2. Add meaningful attributes (user_id, request_id)
+# 3. Don't trace DB queries individually (use batch)
+# 4. Sample based on traffic volume
+# 5. Set up retention policies
+# 6. Use trace context propagation
+#
+#
+# Troubleshooting:
+# ---------------
+# 1. No traces appearing:
+#    - Check OTEL_EXPORTER_OTLP_ENDPOINT
+#    - Verify collector is running
+#    - Check application logs for instrumentation errors
+#
+# 2. Missing spans:
+#    - Check sampling rate
+#    - Verify parent context propagation
+#    - Check collector throughput
+#
+# 3. High cardinality:
+#    - Avoid trace IDs in span names
+#    - Limit tag values
+#    - Use aggregation in queries
+#
+# ============================================================================
+# COST OPTIMIZATION
+# ============================================================================
+#
+# Storage costs (Elasticsearch):
+# ------------------------------
+# Assuming 1M spans/day, 90-day retention:
+#
+# - Elasticsearch: 3 nodes * 100GB * $0.10/GB/hour
+#   = $720/month
+#
+# - Ingestion: negligible (internal network)
+#
+# Total: ~$720/month
+#
+# Optimization strategies:
+# -----------------------
+# 1. Reduce sample rate (10% vs 100%)
+# 2. Use hot-warm architecture in ES
+# 3. Compress old traces
+# 4. Reduce retention period
+# 5. Use Cassandra instead of ES (cheaper)
+#
+# Alternative: Use managed service
+# --------------------------------
+# - AWS X-Ray: $5/1M traces + $0.50/GB stored
+# - Google Cloud Trace: $0.20/1M spans
+# - Datadog APM: $31/host/month
+#
+# ============================================================================

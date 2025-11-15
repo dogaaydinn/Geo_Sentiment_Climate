@@ -1,0 +1,664 @@
+# Compliance and Security Scanning
+# Automated CIS benchmark compliance and security scanning
+#
+# Components:
+# - kube-bench: CIS Kubernetes benchmark scanner
+# - Falco: Runtime security monitoring
+# - Trivy Operator: Container vulnerability scanning
+# - Kyverno: Policy enforcement
+# - OPA Gatekeeper: Admission control
+#
+# Installation:
+#   kubectl apply -f k8s/compliance/cis-security-scanning.yaml
+
+---
+# ============================================================================
+# kube-bench - CIS Kubernetes Benchmark Scanner
+# ============================================================================
+
+# Run kube-bench as a Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kube-bench
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: kube-bench
+    spec:
+      hostPID: true
+      hostNetwork: true
+
+      containers:
+        - name: kube-bench
+          image: aquasec/kube-bench:v0.7.1
+          command: ["kube-bench"]
+          args:
+            - --json
+            - --outputfile
+            - /tmp/results.json
+
+          volumeMounts:
+            - name: var-lib-etcd
+              mountPath: /var/lib/etcd
+              readOnly: true
+            - name: var-lib-kubelet
+              mountPath: /var/lib/kubelet
+              readOnly: true
+            - name: etc-systemd
+              mountPath: /etc/systemd
+              readOnly: true
+            - name: etc-kubernetes
+              mountPath: /etc/kubernetes
+              readOnly: true
+            - name: results
+              mountPath: /tmp
+
+      volumes:
+        - name: var-lib-etcd
+          hostPath:
+            path: /var/lib/etcd
+        - name: var-lib-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+        - name: etc-systemd
+          hostPath:
+            path: /etc/systemd
+        - name: etc-kubernetes
+          hostPath:
+            path: /etc/kubernetes
+        - name: results
+          emptyDir: {}
+
+      restartPolicy: Never
+
+---
+# kube-bench CronJob (scheduled scanning)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kube-bench-scan
+  namespace: kube-system
+spec:
+  schedule: "0 2 * * 0"  # Weekly on Sunday at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostPID: true
+          containers:
+            - name: kube-bench
+              image: aquasec/kube-bench:v0.7.1
+              command:
+                - sh
+                - -c
+                - |
+                  kube-bench run --json > /tmp/results.json
+                  cat /tmp/results.json
+
+                  # Check for failures
+                  FAILURES=$(cat /tmp/results.json | jq -r '.Totals.total_fail')
+                  if [ "$FAILURES" -gt 0 ]; then
+                    echo "CIS Benchmark failures detected: $FAILURES"
+                    # Could send alert here
+                  fi
+
+              volumeMounts:
+                - name: var-lib-etcd
+                  mountPath: /var/lib/etcd
+                  readOnly: true
+                - name: var-lib-kubelet
+                  mountPath: /var/lib/kubelet
+                  readOnly: true
+                - name: etc-systemd
+                  mountPath: /etc/systemd
+                  readOnly: true
+                - name: etc-kubernetes
+                  mountPath: /etc/kubernetes
+                  readOnly: true
+
+          volumes:
+            - name: var-lib-etcd
+              hostPath:
+                path: /var/lib/etcd
+            - name: var-lib-kubelet
+              hostPath:
+                path: /var/lib/kubelet
+            - name: etc-systemd
+              hostPath:
+                path: /etc/systemd
+            - name: etc-kubernetes
+              hostPath:
+                path: /etc/kubernetes
+
+          restartPolicy: Never
+
+---
+# ============================================================================
+# Falco - Runtime Security Monitoring
+# ============================================================================
+
+# Install Falco via Helm:
+# helm repo add falcosecurity https://falcosecurity.github.io/charts
+# helm install falco falcosecurity/falco \
+#   --namespace falco \
+#   --create-namespace \
+#   --set falco.grpc.enabled=true \
+#   --set falco.grpcOutput.enabled=true
+
+# Falco Rules ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-rules-custom
+  namespace: falco
+data:
+  custom-rules.yaml: |
+    # Custom Falco rules for geo-climate platform
+
+    - rule: Unauthorized Process in Container
+      desc: Detect unauthorized processes in production containers
+      condition: >
+        spawned_process and
+        container and
+        container.image.repository in (geo-climate/api) and
+        not proc.name in (python, gunicorn, uvicorn, postgres, redis-server)
+      output: >
+        Unauthorized process started in container
+        (user=%user.name command=%proc.cmdline container=%container.name image=%container.image.repository)
+      priority: WARNING
+      tags: [container, process, compliance]
+
+    - rule: Sensitive File Access
+      desc: Detect access to sensitive files
+      condition: >
+        open_read and
+        container and
+        fd.name in (/etc/shadow, /etc/passwd, /etc/ssh/sshd_config) and
+        not proc.name in (sshd, systemd)
+      output: >
+        Sensitive file accessed
+        (user=%user.name file=%fd.name container=%container.name)
+      priority: CRITICAL
+      tags: [filesystem, security]
+
+    - rule: Database Connection from Unauthorized Pod
+      desc: Detect database connections from non-API pods
+      condition: >
+        outbound and
+        fd.rport=5432 and
+        not k8s.pod.label.app="geo-climate-api"
+      output: >
+        Unauthorized database connection
+        (pod=%k8s.pod.name namespace=%k8s.ns.name dest=%fd.rip)
+      priority: CRITICAL
+      tags: [network, database]
+
+    - rule: Crypto Mining Activity
+      desc: Detect potential crypto mining
+      condition: >
+        spawned_process and
+        proc.name in (xmrig, ethminer, minergate)
+      output: >
+        Potential crypto mining detected
+        (command=%proc.cmdline container=%container.name)
+      priority: CRITICAL
+      tags: [malware, mining]
+
+    - rule: Package Management in Container
+      desc: Detect package installation in running container
+      condition: >
+        spawned_process and
+        container and
+        proc.name in (apt, apt-get, yum, dnf, apk)
+      output: >
+        Package manager executed in container
+        (user=%user.name command=%proc.cmdline container=%container.name)
+      priority: WARNING
+      tags: [container, compliance]
+
+    - rule: Kubernetes API Access
+      desc: Detect direct Kubernetes API access from pods
+      condition: >
+        outbound and
+        fd.rport=6443 and
+        k8s.pod.name != ""
+      output: >
+        Pod accessing Kubernetes API
+        (pod=%k8s.pod.name namespace=%k8s.ns.name)
+      priority: INFO
+      tags: [kubernetes, api]
+
+---
+# Falco Sidekick for Alert Routing
+# Routes Falco alerts to Slack, PagerDuty, etc.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falcosidekick-config
+  namespace: falco
+data:
+  config.yaml: |
+    slack:
+      webhookurl: "${SLACK_WEBHOOK_URL}"
+      channel: "#security-alerts"
+      minimumpriority: "warning"
+
+    pagerduty:
+      routingkey: "${PAGERDUTY_ROUTING_KEY}"
+      minimumpriority: "critical"
+
+    loki:
+      hostport: "http://loki.logging.svc.cluster.local:3100"
+
+---
+# ============================================================================
+# Trivy Operator - Container Vulnerability Scanning
+# ============================================================================
+
+# Install Trivy Operator:
+# helm repo add aqua https://aquasecurity.github.io/helm-charts/
+# helm install trivy-operator aqua/trivy-operator \
+#   --namespace trivy-system \
+#   --create-namespace
+
+# Trivy Operator will automatically:
+# 1. Scan all container images
+# 2. Generate VulnerabilityReport CRDs
+# 3. Scan ConfigMaps and Secrets for sensitive data
+# 4. Generate ConfigAuditReport CRDs
+# 5. Check Kubernetes resources against security best practices
+
+# Check vulnerability reports:
+# kubectl get vulnerabilityreports -A
+# kubectl get vulnerabilityreport <pod-name> -o yaml
+
+---
+# Policy to block images with HIGH/CRITICAL vulnerabilities
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: block-vulnerable-images
+spec:
+  validationFailureAction: enforce
+  background: false
+  rules:
+    - name: check-vulnerabilities
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      preconditions:
+        all:
+          - key: "{{request.operation}}"
+            operator: In
+            value: ["CREATE", "UPDATE"]
+      context:
+        - name: vulnReport
+          apiCall:
+            urlPath: "/apis/aquasecurity.github.io/v1alpha1/vulnerabilityreports"
+            jmesPath: "items[?metadata.labels.\"trivy-operator.resource.name\" == '{{request.object.metadata.name}}'] | [0]"
+
+      validate:
+        message: "Image has HIGH or CRITICAL vulnerabilities"
+        deny:
+          conditions:
+            any:
+              - key: "{{ vulnReport.report.summary.criticalCount }}"
+                operator: GreaterThan
+                value: 0
+              - key: "{{ vulnReport.report.summary.highCount }}"
+                operator: GreaterThan
+                value: 5  # Allow up to 5 HIGH vulnerabilities
+
+---
+# ============================================================================
+# Kyverno - Policy as Code
+# ============================================================================
+
+# Install Kyverno:
+# helm repo add kyverno https://kyverno.github.io/kyverno/
+# helm install kyverno kyverno/kyverno \
+#   --namespace kyverno \
+#   --create-namespace
+
+# Require resource limits
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      All containers must have CPU and memory limits defined to prevent resource exhaustion.
+spec:
+  validationFailureAction: audit  # Change to 'enforce' after testing
+  background: true
+  rules:
+    - name: check-container-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "CPU and memory resource limits are required for all containers"
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+
+---
+# Require non-root containers
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root
+  annotations:
+    policies.kyverno.io/title: Require Non-Root Containers
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+    - name: check-runAsNonRoot
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Containers must run as non-root user"
+        pattern:
+          spec:
+            =(securityContext):
+              =(runAsNonRoot): true
+            containers:
+              - =(securityContext):
+                  =(runAsNonRoot): true
+
+---
+# Require read-only root filesystem
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-readonly-rootfs
+  annotations:
+    policies.kyverno.io/title: Require Read-Only Root Filesystem
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: medium
+spec:
+  validationFailureAction: audit
+  background: true
+  rules:
+    - name: check-readonly-rootfs
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Containers must have read-only root filesystem"
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+
+---
+# Restrict image registries
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    policies.kyverno.io/title: Restrict Image Registries
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+    - name: check-image-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Images must come from approved registries (ghcr.io, gcr.io, docker.io)"
+        pattern:
+          spec:
+            containers:
+              - image: "ghcr.io/* | gcr.io/* | docker.io/*"
+
+---
+# Add security labels automatically
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-security-labels
+  annotations:
+    policies.kyverno.io/title: Add Security Labels
+    policies.kyverno.io/category: Other
+spec:
+  background: false
+  rules:
+    - name: add-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(security.scan.date): "{{time_now_utc}}"
+              +(security.policy.version): "v1"
+
+---
+# ============================================================================
+# OPA Gatekeeper - Admission Control
+# ============================================================================
+
+# Install Gatekeeper:
+# kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.14/deploy/gatekeeper.yaml
+
+# Constraint Template for allowed repositories
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8sallowedrepos
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sAllowedRepos
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            repos:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sallowedrepos
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          satisfied := [good | repo = input.parameters.repos[_] ; good = startswith(container.image, repo)]
+          not any(satisfied)
+          msg := sprintf("container <%v> has an invalid image repo <%v>, allowed repos are %v", [container.name, container.image, input.parameters.repos])
+        }
+
+---
+# Constraint using the template
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sAllowedRepos
+metadata:
+  name: allowed-docker-registries
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - geo-climate
+  parameters:
+    repos:
+      - "ghcr.io/dogaaydinn/"
+      - "gcr.io/geo-climate/"
+      - "docker.io/library/"
+
+---
+# ============================================================================
+# Compliance Reporting
+# ============================================================================
+
+# PrometheusRule for compliance alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: compliance-alerts
+  namespace: kube-system
+spec:
+  groups:
+    - name: compliance
+      interval: 1h
+      rules:
+        - alert: CISBenchmarkFailures
+          expr: |
+            kube_bench_total_fail > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CIS Benchmark failures detected"
+            description: "{{ $value }} CIS benchmark checks failed."
+
+        - alert: HighSeverityVulnerabilities
+          expr: |
+            sum(trivy_image_vulnerabilities{severity="CRITICAL"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical vulnerabilities found in container images"
+            description: "{{ $value }} critical vulnerabilities detected."
+
+        - alert: FalcoSecurityAlert
+          expr: |
+            increase(falco_events{priority="Critical"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Falco detected security event"
+            description: "Critical security event detected by Falco runtime monitoring."
+
+---
+# ============================================================================
+# COMPLIANCE CHECKLISTS
+# ============================================================================
+#
+# CIS Kubernetes Benchmark Key Requirements:
+# ------------------------------------------
+#
+# 1. Control Plane Components:
+#    - API server authentication and authorization
+#    - etcd security (encryption at rest, TLS)
+#    - Controller manager settings
+#    - Scheduler security
+#
+# 2. Worker Nodes:
+#    - Kubelet configuration
+#    - File permissions
+#    - Service account tokens
+#
+# 3. Policies:
+#    - Pod Security Standards
+#    - Network Policies
+#    - RBAC
+#
+# 4. Logging and Monitoring:
+#    - Audit logging enabled
+#    - Metrics collection
+#    - Alerting configured
+#
+#
+# SOC 2 Requirements:
+# ------------------
+# - Access control (RBAC, authentication)
+# - Encryption (in transit and at rest)
+# - Logging and monitoring
+# - Backup and recovery
+# - Change management
+# - Incident response
+#
+#
+# HIPAA Requirements (if applicable):
+# ----------------------------------
+# - Encryption (PHI data)
+# - Access logs
+# - Audit trails
+# - Data retention
+# - Breach notification
+#
+#
+# GDPR Requirements (if applicable):
+# ---------------------------------
+# - Data encryption
+# - Right to be forgotten
+# - Data portability
+# - Breach notification (72 hours)
+# - Privacy by design
+#
+#
+# PCI DSS Requirements (if applicable):
+# ------------------------------------
+# - Network segmentation
+# - Encryption
+# - Access control
+# - Logging and monitoring
+# - Vulnerability scanning
+# - Penetration testing
+#
+# ============================================================================
+# COMPLIANCE AUTOMATION WORKFLOW
+# ============================================================================
+#
+# 1. Daily:
+#    - Trivy scans all images
+#    - Falco monitors runtime
+#    - Kyverno enforces policies
+#
+# 2. Weekly:
+#    - kube-bench CIS scan
+#    - Vulnerability report review
+#    - Policy violations review
+#
+# 3. Monthly:
+#    - Full compliance audit
+#    - Policy updates
+#    - Training and awareness
+#
+# 4. Quarterly:
+#    - External security assessment
+#    - Penetration testing
+#    - Compliance certification
+#
+# ============================================================================

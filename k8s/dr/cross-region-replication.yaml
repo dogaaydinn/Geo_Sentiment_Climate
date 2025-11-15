@@ -1,0 +1,410 @@
+# Cross-Region Disaster Recovery Configuration
+# Multi-region failover setup for geo-distributed resilience
+#
+# Architecture:
+# - Primary region: us-east-1 (or your primary region)
+# - Secondary region: us-west-2 (or your DR region)
+# - Database replication: PostgreSQL streaming replication
+# - Storage replication: Cross-region PV replication
+# - DNS failover: Route53 health checks or CloudFlare load balancing
+#
+# RTO: 1 hour (Recovery Time Objective)
+# RPO: 5 minutes (Recovery Point Objective)
+
+---
+# ============================================================================
+# Multi-Region Kubernetes Setup
+# ============================================================================
+#
+# Prerequisites:
+# 1. Two Kubernetes clusters in different regions
+# 2. VPN or VPC peering between regions
+# 3. Shared storage or replication mechanism
+# 4. DNS-based load balancing
+
+---
+# ============================================================================
+# PostgreSQL Cross-Region Replication
+# ============================================================================
+
+# Primary Region: PostgreSQL with WAL archiving
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-primary-config
+  namespace: geo-climate
+  labels:
+    region: primary
+data:
+  postgresql.conf: |
+    # ... (base config from 08-postgres.yaml)
+
+    # WAL Archiving for DR
+    archive_mode = on
+    archive_command = 'aws s3 cp %p s3://geo-climate-wal-archive-us-east-1/%f --region us-east-1'
+    archive_timeout = 300  # Force archive every 5 minutes
+
+    # Replication slots for DR standby
+    max_replication_slots = 10
+    wal_keep_size = 10GB  # Keep enough WAL for standby catchup
+
+  # Backup script with cross-region copy
+  backup-to-s3.sh: |
+    #!/bin/bash
+    set -e
+
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    BACKUP_FILE="/tmp/backup_${TIMESTAMP}.sql.gz"
+
+    # Create backup
+    pg_basebackup -D - -Ft -z -P | gzip > ${BACKUP_FILE}
+
+    # Upload to primary region S3
+    aws s3 cp ${BACKUP_FILE} \
+      s3://geo-climate-backups-us-east-1/postgres/ \
+      --region us-east-1
+
+    # Replicate to DR region S3
+    aws s3 sync \
+      s3://geo-climate-backups-us-east-1/postgres/ \
+      s3://geo-climate-backups-us-west-2/postgres/ \
+      --source-region us-east-1 \
+      --region us-west-2
+
+    # Cleanup local file
+    rm ${BACKUP_FILE}
+
+    echo "Backup completed and replicated to DR region"
+
+---
+# Secondary Region: PostgreSQL Standby
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-standby-config
+  namespace: geo-climate
+  labels:
+    region: secondary
+data:
+  postgresql.conf: |
+    # Standby configuration
+    hot_standby = on
+    hot_standby_feedback = on
+
+    # Recovery settings
+    restore_command = 'aws s3 cp s3://geo-climate-wal-archive-us-east-1/%f %p --region us-east-1'
+    recovery_target_timeline = 'latest'
+
+  # Promotion script for failover
+  promote-standby.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Promoting standby to primary..."
+
+    # Promote standby
+    pg_ctl promote -D /var/lib/postgresql/data
+
+    # Wait for promotion
+    sleep 10
+
+    # Update archive command to new region
+    psql -c "ALTER SYSTEM SET archive_command = 'aws s3 cp %p s3://geo-climate-wal-archive-us-west-2/%f --region us-west-2';"
+
+    # Reload config
+    pg_ctl reload -D /var/lib/postgresql/data
+
+    echo "Standby promoted to primary successfully"
+
+---
+# ============================================================================
+# Velero Backup Configuration (Multi-Region)
+# ============================================================================
+
+# Velero for Kubernetes resource backup
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-config
+  namespace: velero
+data:
+  # AWS Configuration
+  cloud-credentials: |
+    [default]
+    aws_access_key_id=${AWS_ACCESS_KEY_ID}
+    aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
+
+---
+# Velero Backup Schedule (Primary Region)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: geo-climate-backup-schedule
+  namespace: velero
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  template:
+    includedNamespaces:
+      - geo-climate
+    excludedResources:
+      - events
+      - events.events.k8s.io
+    storageLocation: primary-backup
+    volumeSnapshotLocations:
+      - primary-snapshots
+    ttl: 720h  # Keep for 30 days
+
+---
+# Velero Storage Locations
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: primary-backup
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: geo-climate-velero-backups-us-east-1
+    prefix: kubernetes
+  config:
+    region: us-east-1
+
+---
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: dr-backup
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: geo-climate-velero-backups-us-west-2
+    prefix: kubernetes
+  config:
+    region: us-west-2
+
+---
+# ============================================================================
+# DNS Failover Configuration
+# ============================================================================
+
+# AWS Route53 Health Check
+# (Created via AWS CLI or Terraform)
+#
+# Primary Region Health Check:
+# aws route53 create-health-check \
+#   --caller-reference $(date +%s) \
+#   --health-check-config \
+#     IPAddress=<PRIMARY_LB_IP>,Port=443,Type=HTTPS,ResourcePath=/health,FullyQualifiedDomainName=api.geo-climate.example.com
+#
+# DNS Failover Record:
+# resource "aws_route53_record" "api_primary" {
+#   zone_id = var.zone_id
+#   name    = "api.geo-climate.example.com"
+#   type    = "A"
+#
+#   set_identifier = "primary"
+#   failover_routing_policy {
+#     type = "PRIMARY"
+#   }
+#
+#   health_check_id = aws_route53_health_check.primary.id
+#
+#   alias {
+#     name                   = kubernetes_service.primary_lb.hostname
+#     zone_id                = data.aws_elb_hosted_zone_id.main.id
+#     evaluate_target_health = true
+#   }
+# }
+#
+# resource "aws_route53_record" "api_secondary" {
+#   zone_id = var.zone_id
+#   name    = "api.geo-climate.example.com"
+#   type    = "A"
+#
+#   set_identifier = "secondary"
+#   failover_routing_policy {
+#     type = "SECONDARY"
+#   }
+#
+#   alias {
+#     name                   = kubernetes_service.dr_lb.hostname
+#     zone_id                = data.aws_elb_hosted_zone_id.west.id
+#     evaluate_target_health = true
+#   }
+# }
+
+---
+# ============================================================================
+# Application-Level Replication
+# ============================================================================
+
+# Redis Replication to DR Region
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-replication-config
+  namespace: geo-climate
+data:
+  redis-replication.conf: |
+    # In DR region, configure as replica
+    replicaof primary-redis.geo-climate.svc.cluster.local 6379
+    masterauth ${REDIS_PASSWORD}
+
+    # Enable diskless replication for faster sync
+    repl-diskless-sync yes
+    repl-diskless-sync-delay 5
+
+    # Backlog for partial resync
+    repl-backlog-size 100mb
+    repl-backlog-ttl 3600
+
+---
+# ============================================================================
+# Disaster Recovery Runbook
+# ============================================================================
+#
+# FAILOVER PROCEDURE (Primary to DR)
+# ===================================
+#
+# Prerequisites Check:
+# -------------------
+# 1. Verify DR region health:
+#    kubectl get nodes --context=dr-cluster
+#    kubectl get pods -n geo-climate --context=dr-cluster
+#
+# 2. Verify database replication lag:
+#    kubectl exec postgres-0 -n geo-climate --context=dr-cluster -- \
+#      psql -U postgres -c "SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn();"
+#
+# 3. Verify last backup age:
+#    aws s3 ls s3://geo-climate-backups-us-west-2/postgres/ --region us-west-2
+#
+# Failover Steps:
+# ---------------
+# Step 1: Stop traffic to primary (if accessible)
+#   kubectl scale deployment geo-climate-api --replicas=0 -n geo-climate --context=primary-cluster
+#
+# Step 2: Promote DR database to primary
+#   kubectl exec postgres-0 -n geo-climate --context=dr-cluster -- \
+#     /scripts/promote-standby.sh
+#
+# Step 3: Scale up DR application
+#   kubectl scale deployment geo-climate-api --replicas=3 -n geo-climate --context=dr-cluster
+#
+# Step 4: Update DNS to point to DR
+#   # Via Route53 health check automatic failover
+#   # Or manual update:
+#   aws route53 change-resource-record-sets \
+#     --hosted-zone-id ${ZONE_ID} \
+#     --change-batch file://failover-dns-change.json
+#
+# Step 5: Verify DR is serving traffic
+#   curl https://api.geo-climate.example.com/health
+#
+# Step 6: Monitor metrics
+#   # Check Grafana dashboard
+#   # Monitor error rates
+#   # Verify database writes
+#
+# FAILBACK PROCEDURE (DR to Primary)
+# ===================================
+#
+# Step 1: Fix primary region issues
+#
+# Step 2: Restore primary database from backup
+#   # Get latest backup from DR
+#   aws s3 sync \
+#     s3://geo-climate-backups-us-west-2/postgres/ \
+#     /tmp/restore/ \
+#     --region us-west-2
+#
+#   # Restore to primary
+#   gunzip -c /tmp/restore/latest_backup.sql.gz | \
+#     kubectl exec -i postgres-0 -n geo-climate --context=primary-cluster -- \
+#     psql -U geo_climate -d geo_climate_prod
+#
+# Step 3: Set up replication from DR to primary
+#   # Configure primary as standby of DR temporarily
+#
+# Step 4: Wait for replication to catch up
+#   # Monitor replication lag
+#
+# Step 5: Promote primary back
+#   kubectl exec postgres-0 -n geo-climate --context=primary-cluster -- \
+#     /scripts/promote-standby.sh
+#
+# Step 6: Update DNS back to primary
+#
+# Step 7: Scale up primary application
+#   kubectl scale deployment geo-climate-api --replicas=3 -n geo-climate --context=primary-cluster
+#
+# Step 8: Scale down DR to standby mode
+#   kubectl scale deployment geo-climate-api --replicas=1 -n geo-climate --context=dr-cluster
+#
+# Step 9: Reconfigure DR as standby
+#
+# TESTING DISASTER RECOVERY
+# ==========================
+#
+# Monthly DR Drill Procedure:
+# --------------------------
+# 1. Schedule maintenance window (non-peak hours)
+# 2. Notify team via Slack
+# 3. Execute failover to DR
+# 4. Run smoke tests on DR
+# 5. Verify all functionality
+# 6. Execute failback to primary
+# 7. Document any issues found
+# 8. Update runbook if needed
+#
+# Automated DR Test (Non-Disruptive):
+# -----------------------------------
+# 1. Create test namespace in DR region
+# 2. Deploy application from backup
+# 3. Restore database snapshot
+# 4. Run integration tests
+# 5. Cleanup test resources
+# 6. Report results
+#
+# RTO/RPO Tracking:
+# ----------------
+# - Measure actual failover time during drills
+# - Track replication lag continuously
+# - Alert if lag exceeds RPO (5 minutes)
+# - Dashboard showing DR readiness
+#
+# ============================================================================
+# MULTI-REGION COST OPTIMIZATION
+# ============================================================================
+#
+# Cost Reduction Strategies:
+# -------------------------
+# 1. DR region runs minimal replicas (1-2) until failover
+# 2. Use smaller instance types in DR
+# 3. Lifecycle policies for backup retention
+# 4. Cross-region replication only for critical data
+# 5. Use AWS S3 Intelligent-Tiering for backups
+# 6. Reserved instances for predictable DR capacity
+#
+# Estimated Costs (monthly):
+# -------------------------
+# Primary Region:
+#   - Compute (EKS): $500-1000
+#   - Database (RDS): $300-500
+#   - Storage: $100-200
+#   - Data transfer: $50-100
+#   Total: ~$1,000-1,800/month
+#
+# DR Region (standby):
+#   - Compute: $100-200 (minimal replicas)
+#   - Database: $300-500 (read replica)
+#   - Storage: $100-200
+#   - Replication: $50-100
+#   Total: ~$600-1,000/month
+#
+# Total Multi-Region: ~$1,600-2,800/month
+# Single region cost: ~$1,000-1,800/month
+# DR Premium: ~60% additional cost
+#
+# ============================================================================

@@ -1,0 +1,568 @@
+# Alerting Channels Integration
+# PagerDuty and Opsgenie integration for incident management
+#
+# Components:
+# - Alertmanager configuration for PagerDuty/Opsgenie
+# - Routing rules by severity
+# - On-call schedules
+# - Escalation policies
+# - Alert grouping and deduplication
+#
+# Usage:
+#   kubectl apply -f k8s/alerting/pagerduty-opsgenie-integration.yaml
+
+---
+# ============================================================================
+# Alertmanager Configuration with PagerDuty
+# ============================================================================
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-pagerduty
+  namespace: monitoring
+type: Opaque
+stringData:
+  # Get from PagerDuty: Configuration > Services > Integration Key
+  PAGERDUTY_INTEGRATION_KEY_CRITICAL: "YOUR_CRITICAL_INTEGRATION_KEY"
+  PAGERDUTY_INTEGRATION_KEY_WARNING: "YOUR_WARNING_INTEGRATION_KEY"
+  PAGERDUTY_INTEGRATION_KEY_INFO: "YOUR_INFO_INTEGRATION_KEY"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-opsgenie
+  namespace: monitoring
+type: Opaque
+stringData:
+  # Get from Opsgenie: Settings > Integrations > Prometheus
+  OPSGENIE_API_KEY: "YOUR_OPSGENIE_API_KEY"
+
+---
+# Alertmanager ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+      # PagerDuty defaults
+      pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+      # Opsgenie defaults
+      opsgenie_api_url: 'https://api.opsgenie.com/'
+
+      # Slack defaults
+      slack_api_url: 'https://hooks.slack.com/services'
+
+    # Alert routing tree
+    route:
+      receiver: 'default-receiver'
+      group_by: ['alertname', 'cluster', 'namespace', 'severity']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+
+      # Child routes
+      routes:
+        # Critical alerts to PagerDuty and Opsgenie
+        - match:
+            severity: critical
+          receiver: 'pagerduty-critical'
+          continue: true  # Also send to other receivers
+
+        - match:
+            severity: critical
+          receiver: 'opsgenie-critical'
+          continue: true
+
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+
+        # Warning alerts to Slack and Opsgenie
+        - match:
+            severity: warning
+          receiver: 'opsgenie-warning'
+          continue: true
+
+        - match:
+            severity: warning
+          receiver: 'slack-warning'
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+
+        # Info alerts to Slack only
+        - match:
+            severity: info
+          receiver: 'slack-info'
+          group_wait: 5m
+          group_interval: 10m
+          repeat_interval: 24h
+
+        # Database-specific alerts
+        - match:
+            component: database
+          receiver: 'database-team'
+          continue: false
+
+        # Cost alerts
+        - match:
+            alert_type: cost
+          receiver: 'cost-team'
+          continue: false
+
+    # Alert inhibition rules
+    inhibit_rules:
+      # Inhibit warning if critical is firing
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace', 'pod']
+
+      # Inhibit info if warning is firing
+      - source_match:
+          severity: 'warning'
+        target_match:
+          severity: 'info'
+        equal: ['alertname', 'namespace']
+
+    # Receivers
+    receivers:
+      # Default receiver (no alerts should use this)
+      - name: 'default-receiver'
+
+      # PagerDuty - Critical alerts
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - service_key: '${PAGERDUTY_INTEGRATION_KEY_CRITICAL}'
+            description: '{{ .CommonAnnotations.summary }}'
+            details:
+              firing: '{{ .Alerts.Firing | len }}'
+              resolved: '{{ .Alerts.Resolved | len }}'
+              alertname: '{{ .GroupLabels.alertname }}'
+              namespace: '{{ .GroupLabels.namespace }}'
+              severity: '{{ .GroupLabels.severity }}'
+            client: 'Geo Climate Alertmanager'
+            client_url: 'https://prometheus.geo-climate.example.com'
+            links:
+              - href: 'https://grafana.geo-climate.example.com'
+                text: 'Grafana Dashboard'
+              - href: 'https://prometheus.geo-climate.example.com'
+                text: 'Prometheus'
+
+      # Opsgenie - Critical alerts
+      - name: 'opsgenie-critical'
+        opsgenie_configs:
+          - api_key: '${OPSGENIE_API_KEY}'
+            message: '{{ .CommonAnnotations.summary }}'
+            description: '{{ .CommonAnnotations.description }}'
+            priority: 'P1'
+            tags: 'critical,geo-climate,{{ .GroupLabels.namespace }}'
+            details:
+              alertname: '{{ .GroupLabels.alertname }}'
+              namespace: '{{ .GroupLabels.namespace }}'
+              severity: '{{ .GroupLabels.severity }}'
+            responders:
+              - name: 'Platform Team'
+                type: 'team'
+              - username: 'oncall@geo-climate.com'
+                type: 'user'
+
+      # Opsgenie - Warning alerts
+      - name: 'opsgenie-warning'
+        opsgenie_configs:
+          - api_key: '${OPSGENIE_API_KEY}'
+            message: '{{ .CommonAnnotations.summary }}'
+            description: '{{ .CommonAnnotations.description }}'
+            priority: 'P3'
+            tags: 'warning,geo-climate,{{ .GroupLabels.namespace }}'
+
+      # Slack - Critical alerts
+      - name: 'slack-critical'
+        slack_configs:
+          - api_url: '${SLACK_WEBHOOK_URL}'
+            channel: '#alerts-critical'
+            title: '🚨 CRITICAL: {{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
+            color: 'danger'
+            fields:
+              - title: 'Severity'
+                value: '{{ .GroupLabels.severity }}'
+                short: true
+              - title: 'Namespace'
+                value: '{{ .GroupLabels.namespace }}'
+                short: true
+              - title: 'Alertname'
+                value: '{{ .GroupLabels.alertname }}'
+              - title: 'Firing'
+                value: '{{ .Alerts.Firing | len }}'
+                short: true
+            actions:
+              - type: 'button'
+                text: 'View in Grafana'
+                url: 'https://grafana.geo-climate.example.com'
+              - type: 'button'
+                text: 'View Runbook'
+                url: 'https://github.com/dogaaydinn/Geo_Sentiment_Climate/blob/main/docs/OPERATIONAL_RUNBOOKS.md'
+
+      # Slack - Warning alerts
+      - name: 'slack-warning'
+        slack_configs:
+          - api_url: '${SLACK_WEBHOOK_URL}'
+            channel: '#alerts-warning'
+            title: '⚠️ WARNING: {{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
+            color: 'warning'
+
+      # Slack - Info alerts
+      - name: 'slack-info'
+        slack_configs:
+          - api_url: '${SLACK_WEBHOOK_URL}'
+            channel: '#alerts-info'
+            title: 'ℹ️ INFO: {{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
+            color: 'good'
+
+      # Database team
+      - name: 'database-team'
+        opsgenie_configs:
+          - api_key: '${OPSGENIE_API_KEY}'
+            responders:
+              - name: 'Database Team'
+                type: 'team'
+
+      # Cost team
+      - name: 'cost-team'
+        slack_configs:
+          - api_url: '${SLACK_WEBHOOK_URL}'
+            channel: '#cost-alerts'
+            title: '💰 Cost Alert: {{ .CommonAnnotations.summary }}'
+            color: 'warning'
+
+---
+# ============================================================================
+# PagerDuty Service Configuration
+# ============================================================================
+#
+# Create PagerDuty Services:
+# 1. Go to https://[your-domain].pagerduty.com
+# 2. Services > New Service
+# 3. Name: Geo Climate - Critical
+# 4. Integration: Prometheus
+# 5. Escalation Policy: Critical Escalation
+# 6. Copy Integration Key
+#
+# Escalation Policy Example:
+# -------------------------
+# Level 1: On-Call Engineer (immediately)
+# Level 2: Team Lead (after 15 minutes)
+# Level 3: Engineering Manager (after 30 minutes)
+#
+# On-Call Schedule:
+# ----------------
+# - Primary on-call: 24/7 rotation
+# - Secondary on-call: Backup
+# - Follow-the-sun model for global teams
+
+---
+# ============================================================================
+# Opsgenie Team and Schedule Configuration
+# ============================================================================
+#
+# Create Opsgenie Teams:
+# 1. Go to Settings > Teams
+# 2. Create team: Platform Team
+# 3. Add members
+#
+# Create On-Call Schedules:
+# 1. Go to Settings > On-Call Schedules
+# 2. Name: Platform On-Call
+# 3. Rotation: Weekly (Monday 9 AM)
+# 4. Participants: [team members]
+# 5. Timezone: UTC
+#
+# Create Escalation Policy:
+# 1. Go to Settings > Escalation Policies
+# 2. Name: Critical Escalation
+# 3. Rules:
+#    - Notify: Primary on-call (immediately)
+#    - If not acknowledged in 15 min: Secondary on-call
+#    - If not acknowledged in 30 min: Team lead
+#
+# Integration:
+# 1. Go to Settings > Integrations
+# 2. Add: Prometheus
+# 3. Copy API Key
+
+---
+# ============================================================================
+# On-Call Rotation Configuration
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oncall-schedule
+  namespace: monitoring
+data:
+  schedule.yaml: |
+    # On-Call Rotation Schedule
+    # Updated weekly by Platform Team Lead
+
+    primary_oncall:
+      week_1: "alice@geo-climate.com"
+      week_2: "bob@geo-climate.com"
+      week_3: "charlie@geo-climate.com"
+      week_4: "diana@geo-climate.com"
+
+    secondary_oncall:
+      week_1: "bob@geo-climate.com"
+      week_2: "charlie@geo-climate.com"
+      week_3: "diana@geo-climate.com"
+      week_4: "alice@geo-climate.com"
+
+    escalation:
+      team_lead: "lead@geo-climate.com"
+      manager: "manager@geo-climate.com"
+
+    # On-Call Responsibilities:
+    # - Respond to critical alerts within 15 minutes
+    # - Investigate and mitigate production issues
+    # - Update incident log
+    # - Create post-mortem for P0/P1 incidents
+    # - Handoff to next on-call engineer
+
+    # On-Call Handoff Checklist:
+    # - Review open incidents
+    # - Share context on ongoing issues
+    # - Review scheduled maintenance
+    # - Update knowledge base
+    # - Test pager/phone notifications
+
+---
+# ============================================================================
+# Alert Testing
+# ============================================================================
+
+# Test alert via Alertmanager API
+# curl -X POST http://alertmanager:9093/api/v1/alerts -d '[
+#   {
+#     "labels": {
+#       "alertname": "TestAlert",
+#       "severity": "warning",
+#       "namespace": "geo-climate"
+#     },
+#     "annotations": {
+#       "summary": "Test alert from Alertmanager",
+#       "description": "This is a test alert to verify PagerDuty/Opsgenie integration"
+#     }
+#   }
+# ]'
+
+# Test PagerDuty integration
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-pagerduty-alert
+  namespace: monitoring
+spec:
+  template:
+    spec:
+      containers:
+        - name: test
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              curl -X POST https://events.pagerduty.com/v2/enqueue \
+                -H 'Content-Type: application/json' \
+                -d '{
+                  "routing_key": "'${PAGERDUTY_INTEGRATION_KEY}'",
+                  "event_action": "trigger",
+                  "payload": {
+                    "summary": "Test alert from Kubernetes",
+                    "severity": "info",
+                    "source": "geo-climate-cluster",
+                    "custom_details": {
+                      "description": "This is a test alert"
+                    }
+                  }
+                }'
+          env:
+            - name: PAGERDUTY_INTEGRATION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-pagerduty
+                  key: PAGERDUTY_INTEGRATION_KEY_CRITICAL
+      restartPolicy: Never
+
+---
+# ============================================================================
+# Alert Routing Examples
+# ============================================================================
+#
+# Example 1: Route database alerts to database team
+# -------------------------------------------------
+# - match:
+#     component: database
+#   receiver: database-team
+#   routes:
+#     - match:
+#         severity: critical
+#       receiver: pagerduty-critical
+#
+#
+# Example 2: Route cost alerts during business hours only
+# -------------------------------------------------------
+# - match:
+#     alert_type: cost
+#   receiver: cost-team
+#   active_time_intervals:
+#     - business-hours
+#
+# time_intervals:
+#   - name: business-hours
+#     time_intervals:
+#       - weekdays: ['monday:friday']
+#         times:
+#           - start_time: '09:00'
+#             end_time: '17:00'
+#         location: 'America/New_York'
+#
+#
+# Example 3: Mute alerts during maintenance window
+# ------------------------------------------------
+# - match:
+#     namespace: geo-climate
+#   receiver: 'null'
+#   active_time_intervals:
+#     - maintenance-window
+#
+# time_intervals:
+#   - name: maintenance-window
+#     time_intervals:
+#       - times:
+#           - start_time: '02:00'
+#             end_time: '04:00'
+#         weekdays: ['sunday']
+#
+#
+# Example 4: Deduplicate similar alerts
+# -------------------------------------
+# route:
+#   group_by: ['alertname', 'pod']
+#   group_wait: 30s
+#   group_interval: 5m
+#   repeat_interval: 4h
+#
+# ============================================================================
+# ON-CALL BEST PRACTICES
+# ============================================================================
+#
+# 1. On-Call Preparation:
+#    - Test your pager/phone notifications
+#    - Have laptop ready with VPN access
+#    - Review recent incidents and ongoing issues
+#    - Check Grafana/Prometheus access
+#    - Review runbooks
+#
+# 2. During On-Call:
+#    - Acknowledge alerts within 15 minutes
+#    - Update incident channel with status
+#    - Escalate if unable to resolve in 1 hour
+#    - Document all actions taken
+#    - Create incident post-mortem
+#
+# 3. Handoff:
+#    - Schedule 30-minute overlap
+#    - Review all open incidents
+#    - Share context on ongoing issues
+#    - Update knowledge base
+#    - Confirm next engineer can access systems
+#
+# 4. Alert Fatigue Prevention:
+#    - Review and tune alert thresholds
+#    - Add inhibition rules for related alerts
+#    - Group similar alerts
+#    - Increase repeat_interval for low-priority alerts
+#    - Remove alerts that don't require action
+#
+# 5. Post-Incident:
+#    - Write post-mortem within 48 hours
+#    - Identify action items
+#    - Update runbooks
+#    - Share learnings with team
+#    - Implement preventive measures
+#
+# ============================================================================
+# ALERT TUNING GUIDE
+# ============================================================================
+#
+# Reduce Alert Fatigue:
+# --------------------
+# 1. Increase thresholds for non-critical alerts
+# 2. Add longer 'for' duration to avoid transient issues
+# 3. Group related alerts together
+# 4. Add inhibition rules
+# 5. Use severity levels appropriately
+#
+# Improve Signal-to-Noise:
+# -----------------------
+# 1. Review alerts that are frequently ignored
+# 2. Remove alerts that don't lead to action
+# 3. Add context to alert descriptions
+# 4. Include runbook links
+# 5. Test alerts to ensure they're actionable
+#
+# Alert Severity Guidelines:
+# -------------------------
+# Critical (P0):
+#   - Production down
+#   - Data loss
+#   - Security breach
+#   - Page immediately
+#
+# Warning (P1):
+#   - Degraded performance
+#   - Elevated error rates
+#   - Resource saturation approaching
+#   - Notify via Slack/email
+#
+# Info (P2):
+#   - Informational events
+#   - Capacity planning
+#   - Non-urgent issues
+#   - Log only
+#
+# ============================================================================
+# MONITORING ALERTMANAGER
+# ============================================================================
+#
+# Check Alertmanager status:
+# kubectl get pods -n monitoring -l app=alertmanager
+#
+# View Alertmanager UI:
+# kubectl port-forward -n monitoring svc/alertmanager 9093:9093
+# Open http://localhost:9093
+#
+# Check alert routing:
+# curl http://alertmanager:9093/api/v1/alerts
+#
+# Check silences:
+# curl http://alertmanager:9093/api/v1/silences
+#
+# Metrics:
+# - alertmanager_alerts: Total alerts
+# - alertmanager_notifications_total: Notifications sent
+# - alertmanager_notifications_failed_total: Failed notifications
+#
+# ============================================================================

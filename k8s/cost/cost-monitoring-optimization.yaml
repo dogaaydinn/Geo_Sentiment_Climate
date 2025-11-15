@@ -1,0 +1,628 @@
+# Cost Monitoring and Optimization
+# Complete cloud cost visibility and optimization framework
+#
+# Components:
+# - Kubecost for Kubernetes cost monitoring
+# - Cloud provider billing integration
+# - Cost allocation and chargeback
+# - Resource optimization recommendations
+# - Budget alerts
+#
+# Installation:
+#   helm repo add kubecost https://kubecost.github.io/cost-analyzer/
+#   helm install kubecost kubecost/cost-analyzer \
+#     --namespace kubecost \
+#     --create-namespace \
+#     --values k8s/cost/kubecost-values.yaml
+
+---
+# ============================================================================
+# Kubecost Installation
+# ============================================================================
+
+# Kubecost Helm Values (kubecost-values.yaml)
+#
+# global:
+#   prometheus:
+#     enabled: false  # Use existing Prometheus
+#     fqdn: http://prometheus-operated.monitoring.svc.cluster.local:9090
+#
+# kubecostProductConfigs:
+#   clusterName: "geo-climate-production"
+#   currencyCode: "USD"
+#
+#   # AWS Integration
+#   athenaProjectID: "geo-climate"
+#   athenaBucketName: "s3://geo-climate-kubecost-athena"
+#   athenaRegion: "us-east-1"
+#   athenaDatabase: "kubecost"
+#   athenaTable: "kubecost_data"
+#
+#   # GCP Integration
+#   gcpBillingDataDataset: "billing_export"
+#   gcpBillingDataTable: "gcp_billing_export"
+#
+#   # Azure Integration
+#   azureSubscriptionID: "your-subscription-id"
+#   azureBillingRegion: "US"
+#
+# ingress:
+#   enabled: true
+#   className: nginx
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#     nginx.ingress.kubernetes.io/auth-type: basic
+#     nginx.ingress.kubernetes.io/auth-secret: basic-auth
+#   hosts:
+#     - kubecost.geo-climate.example.com
+#   tls:
+#     - secretName: kubecost-tls
+#       hosts:
+#         - kubecost.geo-climate.example.com
+
+---
+# ============================================================================
+# AWS Cost Integration
+# ============================================================================
+
+# IAM Policy for Cost and Usage Reports
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Action": [
+#         "s3:GetObject",
+#         "s3:ListBucket"
+#       ],
+#       "Resource": [
+#         "arn:aws:s3:::geo-climate-cost-reports",
+#         "arn:aws:s3:::geo-climate-cost-reports/*"
+#       ]
+#     },
+#     {
+#       "Effect": "Allow",
+#       "Action": [
+#         "athena:GetQueryExecution",
+#         "athena:GetQueryResults",
+#         "athena:StartQueryExecution"
+#       ],
+#       "Resource": "*"
+#     },
+#     {
+#       "Effect": "Allow",
+#       "Action": [
+#         "glue:GetDatabase",
+#         "glue:GetTable",
+#         "glue:GetPartitions"
+#       ],
+#       "Resource": "*"
+#     },
+#     {
+#       "Effect": "Allow",
+#       "Action": [
+#         "ec2:DescribeInstances",
+#         "ec2:DescribeVolumes",
+#         "ec2:DescribeSnapshots",
+#         "eks:DescribeCluster",
+#         "rds:DescribeDBInstances",
+#         "elasticache:DescribeCacheClusters"
+#       ],
+#       "Resource": "*"
+#     }
+#   ]
+# }
+
+---
+# AWS Cost and Usage Report Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-cost-config
+  namespace: kubecost
+data:
+  # Enable Cost and Usage Reports in AWS:
+  # 1. Go to AWS Billing Console
+  # 2. Create report: geo-climate-cost-report
+  # 3. Time granularity: Hourly
+  # 4. Enable resource IDs
+  # 5. Data integration: Amazon Athena
+  # 6. S3 bucket: geo-climate-cost-reports
+  # 7. Report path prefix: cost-reports/
+  # 8. Compression: GZIP
+  #
+  # Athena setup:
+  setup-athena.sql: |
+    CREATE EXTERNAL TABLE IF NOT EXISTS kubecost_data (
+      identity_line_item_id STRING,
+      identity_time_interval STRING,
+      bill_invoice_id STRING,
+      bill_billing_entity STRING,
+      bill_bill_type STRING,
+      bill_payer_account_id STRING,
+      bill_billing_period_start_date TIMESTAMP,
+      bill_billing_period_end_date TIMESTAMP,
+      line_item_usage_account_id STRING,
+      line_item_line_item_type STRING,
+      line_item_usage_start_date TIMESTAMP,
+      line_item_usage_end_date TIMESTAMP,
+      line_item_product_code STRING,
+      line_item_usage_type STRING,
+      line_item_operation STRING,
+      line_item_availability_zone STRING,
+      line_item_resource_id STRING,
+      line_item_usage_amount DOUBLE,
+      line_item_normalization_factor DOUBLE,
+      line_item_normalized_usage_amount DOUBLE,
+      line_item_currency_code STRING,
+      line_item_unblended_rate STRING,
+      line_item_unblended_cost DOUBLE,
+      line_item_blended_rate STRING,
+      line_item_blended_cost DOUBLE,
+      product_product_name STRING,
+      product_product_family STRING,
+      resource_tags_user_name STRING,
+      resource_tags_user_environment STRING,
+      resource_tags_user_project STRING
+    )
+    PARTITIONED BY (year STRING, month STRING)
+    ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.RegexSerDe'
+    WITH SERDEPROPERTIES (
+      'serialization.format' = '1',
+      'field.delim' = ','
+    )
+    LOCATION 's3://geo-climate-cost-reports/cost-reports/'
+    TBLPROPERTIES (
+      'skip.header.line.count'='1'
+    );
+
+---
+# ============================================================================
+# GCP Billing Export Integration
+# ============================================================================
+
+# Enable BigQuery billing export in GCP
+# 1. Go to Billing > Billing export
+# 2. Enable BigQuery export
+# 3. Dataset: billing_export
+# 4. Table: gcp_billing_export
+
+# BigQuery cost analysis query
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gcp-cost-config
+  namespace: kubecost
+data:
+  cost-analysis.sql: |
+    SELECT
+      service.description as service,
+      sku.description as sku,
+      project.id as project,
+      labels.value as cluster,
+      SUM(cost) as total_cost,
+      SUM(usage.amount) as usage_amount,
+      usage.unit as usage_unit
+    FROM `your-project.billing_export.gcp_billing_export`
+    WHERE
+      DATE(usage_start_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+      AND labels.key = 'cluster-name'
+      AND labels.value = 'geo-climate-production'
+    GROUP BY
+      service, sku, project, cluster, usage_unit
+    ORDER BY
+      total_cost DESC
+    LIMIT 100;
+
+---
+# ============================================================================
+# Cost Allocation Labels
+# ============================================================================
+
+# Label all resources for cost tracking
+# Apply to deployments, statefulsets, etc.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-allocation-labels
+  namespace: kubecost
+data:
+  recommended-labels.yaml: |
+    # Required labels for all resources:
+    metadata:
+      labels:
+        app: geo-climate-api           # Application name
+        component: backend             # Component (backend, frontend, database)
+        tier: production               # Environment tier
+        team: platform                 # Owning team
+        cost-center: engineering       # Cost center for chargeback
+        project: geo-climate           # Project name
+        version: v2.0.0                # Version
+
+---
+# ============================================================================
+# Budget Alerts
+# ============================================================================
+
+# Prometheus alerts for budget thresholds
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cost-budget-alerts
+  namespace: kubecost
+spec:
+  groups:
+    - name: cost_budget
+      interval: 1h
+      rules:
+        - alert: MonthlyBudgetExceeded
+          expr: |
+            sum(
+              increase(kubecost_cluster_management_cost_total[30d])
+            ) > 3000
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Monthly cloud cost budget exceeded"
+            description: "Total cloud cost for this month is ${{ $value | humanize }}, exceeding the $3000 budget."
+
+        - alert: DailyCostAnomaly
+          expr: |
+            (
+              sum(rate(kubecost_cluster_management_cost_total[1d]))
+              /
+              avg_over_time(sum(rate(kubecost_cluster_management_cost_total[1d]))[7d:1d])
+            ) > 1.5
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Daily cost is 50% higher than average"
+            description: "Today's cost is significantly higher than the 7-day average. Investigate resource usage."
+
+        - alert: WastedResources
+          expr: |
+            (
+              sum(kubecost_cluster_idle_cost_total)
+              /
+              sum(kubecost_cluster_management_cost_total)
+            ) > 0.3
+          for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "High idle resource cost (>30%)"
+            description: "{{ $value | humanizePercentage }} of cluster cost is from idle resources. Review resource requests/limits."
+
+---
+# ============================================================================
+# Cost Optimization Recommendations
+# ============================================================================
+
+# Vertical Pod Autoscaler (VPA) for right-sizing
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: geo-climate-api-vpa
+  namespace: geo-climate
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: geo-climate-api
+
+  updatePolicy:
+    updateMode: "Off"  # Recommendation only, no auto-apply
+
+  resourcePolicy:
+    containerPolicies:
+      - containerName: api
+        minAllowed:
+          cpu: 100m
+          memory: 128Mi
+        maxAllowed:
+          cpu: 4000m
+          memory: 8Gi
+        controlledResources: ["cpu", "memory"]
+
+---
+# Goldilocks for multi-deployment VPA recommendations
+# Install: kubectl create ns goldilocks
+# kubectl label ns geo-climate goldilocks.fairwinds.com/enabled=true
+
+---
+# ============================================================================
+# Cost Dashboard Configuration
+# ============================================================================
+
+# Grafana dashboard for cost visualization
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-dashboard
+  namespace: monitoring
+data:
+  cost-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Cloud Cost Dashboard",
+        "panels": [
+          {
+            "title": "Total Monthly Cost",
+            "targets": [{
+              "expr": "sum(increase(kubecost_cluster_management_cost_total[30d]))"
+            }],
+            "type": "stat"
+          },
+          {
+            "title": "Cost by Namespace",
+            "targets": [{
+              "expr": "sum by (namespace) (kubecost_namespace_total_cost)"
+            }],
+            "type": "timeseries"
+          },
+          {
+            "title": "Cost by Resource Type",
+            "targets": [{
+              "expr": "sum by (resource_type) (kubecost_resource_cost)"
+            }],
+            "type": "piechart"
+          },
+          {
+            "title": "Idle Cost Percentage",
+            "targets": [{
+              "expr": "(sum(kubecost_cluster_idle_cost_total) / sum(kubecost_cluster_management_cost_total)) * 100"
+            }],
+            "type": "gauge"
+          },
+          {
+            "title": "Top 10 Most Expensive Pods",
+            "targets": [{
+              "expr": "topk(10, sum by (pod) (kubecost_pod_total_cost))"
+            }],
+            "type": "table"
+          },
+          {
+            "title": "Daily Cost Trend",
+            "targets": [{
+              "expr": "sum(increase(kubecost_cluster_management_cost_total[1d]))"
+            }],
+            "type": "timeseries"
+          }
+        ]
+      }
+    }
+
+---
+# ============================================================================
+# COST OPTIMIZATION STRATEGIES
+# ============================================================================
+#
+# 1. RIGHT-SIZING (Biggest impact: 20-40% savings)
+# ------------------------------------------------
+#
+# Use VPA recommendations:
+#   kubectl get vpa geo-climate-api-vpa -o jsonpath='{.status.recommendation}'
+#
+# Identify over-provisioned pods:
+#   kubectl top pods -n geo-climate
+#   # Compare with resource requests
+#
+# Action:
+#   - Reduce CPU/memory requests for under-utilized pods
+#   - Increase for pods hitting limits
+#   - Use burstable QoS instead of guaranteed
+#
+#
+# 2. AUTOSCALING (10-30% savings)
+# ------------------------------
+#
+# Implement HPA for variable workloads:
+#   - Already configured (3-20 replicas)
+#   - Monitor actual usage vs configured min/max
+#   - Reduce minReplicas during off-peak hours
+#
+# Implement Cluster Autoscaler:
+#   - Scale nodes based on pending pods
+#   - Remove empty nodes
+#   - Use node pools with different instance types
+#
+# Implement KEDA for event-driven scaling:
+#   - Scale to zero during idle periods
+#   - Scale based on queue depth, HTTP traffic
+#
+#
+# 3. SPOT/PREEMPTIBLE INSTANCES (50-70% savings)
+# ---------------------------------------------
+#
+# Use spot instances for non-critical workloads:
+#   - Development environments
+#   - Batch processing
+#   - Stateless applications with retries
+#
+# Node pool configuration:
+#   nodeSelector:
+#     node.kubernetes.io/lifecycle: spot
+#
+# Tolerations:
+#   tolerations:
+#     - key: "node.kubernetes.io/lifecycle"
+#       operator: "Equal"
+#       value: "spot"
+#       effect: "NoSchedule"
+#
+#
+# 4. RESERVED INSTANCES / SAVINGS PLANS (30-50% savings)
+# -----------------------------------------------------
+#
+# For predictable workloads:
+#   - Database instances (always running)
+#   - Core API pods (min replicas)
+#   - Monitoring infrastructure
+#
+# AWS Reserved Instances:
+#   - 1-year: ~30% discount
+#   - 3-year: ~50% discount
+#
+# AWS Savings Plans:
+#   - Compute Savings Plans: Flexible across instance types
+#   - EC2 Instance Savings Plans: Higher discount, less flexible
+#
+# GCP Committed Use Discounts:
+#   - 1-year: ~25% discount
+#   - 3-year: ~40% discount
+#
+# Azure Reserved Instances:
+#   - 1-year: ~30% discount
+#   - 3-year: ~50% discount
+#
+#
+# 5. STORAGE OPTIMIZATION (10-20% savings)
+# ---------------------------------------
+#
+# Use appropriate storage classes:
+#   - Hot data: SSD (gp3, pd-ssd)
+#   - Warm data: HDD (st1, pd-standard)
+#   - Cold data: Archive (S3 Glacier, GCS Archive)
+#
+# Lifecycle policies:
+#   - Move backups to cheaper tiers after 30 days
+#   - Delete old backups after retention period
+#
+# Cleanup unused PVCs:
+#   kubectl get pvc -A | grep "Released"
+#
+#
+# 6. NETWORK OPTIMIZATION (5-15% savings)
+# --------------------------------------
+#
+# Reduce cross-AZ traffic:
+#   - Use pod anti-affinity within same AZ
+#   - Deploy services in same AZ as dependencies
+#
+# Use VPC endpoints (AWS):
+#   - Avoid NAT Gateway costs for S3, DynamoDB
+#   - $0.045/GB saved on data transfer
+#
+# Optimize egress:
+#   - Cache external API responses
+#   - Compress data
+#   - Use CDN for static assets
+#
+#
+# 7. DATABASE OPTIMIZATION (10-25% savings)
+# ----------------------------------------
+#
+# Use read replicas efficiently:
+#   - Only for read-heavy workloads
+#   - Reduce replica count if not utilized
+#
+# Right-size database instances:
+#   - Monitor CPU/memory usage
+#   - Use smaller instance types
+#   - Use Aurora Serverless for variable workloads
+#
+# Optimize queries:
+#   - Add indexes for slow queries
+#   - Use connection pooling (PgBouncer)
+#   - Clean up unused tables
+#
+#
+# 8. CONTAINER IMAGE OPTIMIZATION (5-10% savings)
+# ---------------------------------------------
+#
+# Reduce image size:
+#   - Use multi-stage builds
+#   - Use slim/alpine base images
+#   - Remove unnecessary dependencies
+#
+# Faster pulls = lower egress costs:
+#   - Use image layer caching
+#   - Use local registry (Harbor)
+#   - Compress layers
+#
+#
+# 9. TAGGING AND CHARGEBACK (0% direct savings, better visibility)
+# ---------------------------------------------------------------
+#
+# Tag all resources:
+#   - team: platform, data, ml
+#   - environment: dev, staging, production
+#   - cost-center: engineering, research
+#   - project: geo-climate
+#
+# Implement chargeback:
+#   - Allocate costs to teams
+#   - Set team budgets
+#   - Monthly cost reviews
+#
+#
+# 10. MONITORING AND ALERTS (Prevent overspending)
+# -----------------------------------------------
+#
+# Set up budget alerts:
+#   - Daily budget: $100
+#   - Monthly budget: $3000
+#   - Alert at 50%, 75%, 100%
+#
+# Monitor cost trends:
+#   - Daily cost comparison
+#   - Week-over-week changes
+#   - Month-over-month changes
+#
+# Investigate anomalies:
+#   - Sudden cost spikes
+#   - New expensive resources
+#   - Runaway processes
+#
+# ============================================================================
+# COST BENCHMARKS
+# ============================================================================
+#
+# Estimated Monthly Costs (Production):
+# -------------------------------------
+#
+# Compute (EKS/GKE/AKS):
+#   - 3 nodes (m5.xlarge): 3 * $140 = $420/month
+#   - Auto-scaling to 10 nodes peak: +$700/month average
+#   Total: ~$1,120/month
+#
+# Database (RDS/Cloud SQL):
+#   - Primary (db.r5.large): $280/month
+#   - 2 replicas: 2 * $280 = $560/month
+#   Total: ~$840/month
+#
+# Storage:
+#   - EBS/PD volumes: 500GB * $0.10/GB = $50/month
+#   - S3/GCS backups: 1TB * $0.023/GB = $23/month
+#   Total: ~$73/month
+#
+# Networking:
+#   - Load balancer: $20/month
+#   - Data transfer: ~$50/month
+#   Total: ~$70/month
+#
+# Monitoring:
+#   - Prometheus storage: $20/month
+#   - Loki storage: $70/month
+#   - Jaeger storage: $720/month
+#   Total: ~$810/month
+#
+# Other:
+#   - DNS (Route53): $1/month
+#   - Secrets Manager: $2/month
+#   - CloudWatch/Stackdriver logs: $30/month
+#   Total: ~$33/month
+#
+# TOTAL: ~$2,946/month
+#
+# With optimizations:
+# - Right-sizing: -25% = -$280
+# - Spot instances: -30% = -$336
+# - Reserved instances: -20% = -$168
+#
+# Optimized total: ~$2,162/month (27% savings)
+#
+# ============================================================================
