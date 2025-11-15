@@ -1,0 +1,554 @@
+# Chaos Engineering Experiments
+# Testing system resilience through controlled failure injection
+#
+# Uses Chaos Mesh: https://chaos-mesh.org/
+#
+# Installation:
+#   helm repo add chaos-mesh https://charts.chaos-mesh.org
+#   helm install chaos-mesh chaos-mesh/chaos-mesh \
+#     --namespace=chaos-testing \
+#     --create-namespace \
+#     --set chaosDaemon.runtime=containerd \
+#     --set chaosDaemon.socketPath=/run/containerd/containerd.sock
+#
+# Usage:
+#   kubectl apply -f k8s/chaos/chaos-experiments.yaml
+
+---
+# ============================================================================
+# Pod Failure Experiments
+# ============================================================================
+
+# Test 1: Random Pod Kill
+# Tests: Pod restart resilience, HPA response
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-experiment
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one  # Kill one random pod
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  scheduler:
+    cron: "@every 30m"  # Run every 30 minutes in test environment
+  duration: "10s"
+
+---
+# Test 2: Pod Failure (graceful shutdown)
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-failure-experiment
+  namespace: chaos-testing
+spec:
+  action: pod-failure
+  mode: fixed
+  value: "1"  # Fail 1 pod
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  duration: "5m"
+
+---
+# ============================================================================
+# Network Chaos Experiments
+# ============================================================================
+
+# Test 3: Network Delay
+# Tests: Timeout handling, retry logic
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-delay-experiment
+  namespace: chaos-testing
+spec:
+  action: delay
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  delay:
+    latency: "500ms"  # Add 500ms latency
+    correlation: "0"
+    jitter: "100ms"   # ±100ms variance
+  duration: "5m"
+
+---
+# Test 4: Network Loss
+# Tests: Retry mechanisms, error handling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-loss-experiment
+  namespace: chaos-testing
+spec:
+  action: loss
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  loss:
+    loss: "10"  # 10% packet loss
+    correlation: "0"
+  duration: "3m"
+
+---
+# Test 5: Network Partition
+# Tests: Database connection handling, circuit breakers
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-partition-database
+  namespace: chaos-testing
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  direction: to
+  target:
+    selector:
+      namespaces:
+        - geo-climate
+      labelSelectors:
+        app: postgres
+    mode: all
+  duration: "2m"
+
+---
+# Test 6: DNS Chaos
+# Tests: DNS resolution fallback, service discovery
+apiVersion: chaos-mesh.org/v1alpha1
+kind: DNSChaos
+metadata:
+  name: dns-chaos-experiment
+  namespace: chaos-testing
+spec:
+  action: random
+  mode: all
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  patterns:
+    - postgres.geo-climate.svc.cluster.local
+    - redis.geo-climate.svc.cluster.local
+  duration: "2m"
+
+---
+# ============================================================================
+# Stress Testing
+# ============================================================================
+
+# Test 7: CPU Stress
+# Tests: Resource limits, auto-scaling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress-experiment
+  namespace: chaos-testing
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  stressors:
+    cpu:
+      workers: 4
+      load: 80  # 80% CPU load
+  duration: "5m"
+
+---
+# Test 8: Memory Stress
+# Tests: Memory limits, OOM handling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: memory-stress-experiment
+  namespace: chaos-testing
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  stressors:
+    memory:
+      workers: 4
+      size: "1GB"  # Allocate 1GB
+  duration: "3m"
+
+---
+# ============================================================================
+# I/O Chaos
+# ============================================================================
+
+# Test 9: I/O Delay
+# Tests: Disk I/O handling, timeouts
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: io-delay-experiment
+  namespace: chaos-testing
+spec:
+  action: latency
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: postgres
+  volumePath: /var/lib/postgresql/data
+  path: "/var/lib/postgresql/data/**/*"
+  delay: "100ms"
+  percent: 50  # 50% of I/O operations
+  duration: "5m"
+
+---
+# Test 10: I/O Error
+# Tests: Disk error handling, retries
+apiVersion: chaos-mesh.org/v1alpha1
+kind: IOChaos
+metadata:
+  name: io-error-experiment
+  namespace: chaos-testing
+spec:
+  action: fault
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: postgres
+  volumePath: /var/lib/postgresql/data
+  path: "/var/lib/postgresql/data/**/*.log"
+  errno: 5  # EIO (I/O error)
+  percent: 10  # 10% of operations
+  duration: "2m"
+
+---
+# ============================================================================
+# HTTP Chaos
+# ============================================================================
+
+# Test 11: HTTP Abort
+# Tests: Circuit breaker, retry logic
+apiVersion: chaos-mesh.org/v1alpha1
+kind: HTTPChaos
+metadata:
+  name: http-abort-experiment
+  namespace: chaos-testing
+spec:
+  mode: all
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  target: Request
+  port: 8000
+  method: GET
+  path: "/predict"
+  abort: true
+  duration: "2m"
+
+---
+# Test 12: HTTP Delay
+# Tests: Timeout handling
+apiVersion: chaos-mesh.org/v1alpha1
+kind: HTTPChaos
+metadata:
+  name: http-delay-experiment
+  namespace: chaos-testing
+spec:
+  mode: all
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  target: Request
+  port: 8000
+  method: POST
+  path: "/predict"
+  delay: "5s"
+  duration: "3m"
+
+---
+# ============================================================================
+# Time Chaos (Clock Skew)
+# ============================================================================
+
+# Test 13: Time Skew
+# Tests: Time-dependent logic, token expiration
+apiVersion: chaos-mesh.org/v1alpha1
+kind: TimeChaos
+metadata:
+  name: time-skew-experiment
+  namespace: chaos-testing
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - geo-climate
+    labelSelectors:
+      app: geo-climate-api
+  timeOffset: "-1h"  # Skew time back by 1 hour
+  duration: "5m"
+
+---
+# ============================================================================
+# Workflow Experiments (Complex Scenarios)
+# ============================================================================
+
+# Test 14: Multi-Step Disaster Scenario
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Workflow
+metadata:
+  name: disaster-scenario
+  namespace: chaos-testing
+spec:
+  entry: the-entry
+  templates:
+    - name: the-entry
+      templateType: Serial
+      deadline: 30m
+      children:
+        - database-failure
+        - wait-5min
+        - redis-failure
+        - wait-2min
+        - network-issues
+        - wait-3min
+        - pod-failures
+
+    - name: database-failure
+      templateType: NetworkChaos
+      deadline: 5m
+      networkChaos:
+        action: partition
+        mode: all
+        selector:
+          namespaces:
+            - geo-climate
+          labelSelectors:
+            app: geo-climate-api
+        direction: to
+        target:
+          selector:
+            namespaces:
+              - geo-climate
+            labelSelectors:
+              app: postgres
+          mode: all
+        duration: "3m"
+
+    - name: wait-5min
+      templateType: Suspend
+      deadline: 5m
+
+    - name: redis-failure
+      templateType: PodChaos
+      deadline: 3m
+      podChaos:
+        action: pod-kill
+        mode: all
+        selector:
+          namespaces:
+            - geo-climate
+          labelSelectors:
+            app: redis
+
+    - name: wait-2min
+      templateType: Suspend
+      deadline: 2m
+
+    - name: network-issues
+      templateType: NetworkChaos
+      deadline: 5m
+      networkChaos:
+        action: delay
+        mode: all
+        selector:
+          namespaces:
+            - geo-climate
+          labelSelectors:
+            app: geo-climate-api
+        delay:
+          latency: "1s"
+          correlation: "0"
+          jitter: "500ms"
+        duration: "3m"
+
+    - name: wait-3min
+      templateType: Suspend
+      deadline: 3m
+
+    - name: pod-failures
+      templateType: PodChaos
+      deadline: 5m
+      podChaos:
+        action: pod-kill
+        mode: fixed-percent
+        value: "30"  # Kill 30% of pods
+        selector:
+          namespaces:
+            - geo-climate
+          labelSelectors:
+            app: geo-climate-api
+
+---
+# ============================================================================
+# Chaos Mesh Dashboard
+# ============================================================================
+#
+# Access Chaos Mesh Dashboard:
+#   kubectl port-forward -n chaos-testing svc/chaos-dashboard 2333:2333
+#   Open http://localhost:2333
+#
+# ============================================================================
+# EXPERIMENT BEST PRACTICES
+# ============================================================================
+#
+# 1. START SMALL
+#    - Begin with one experiment at a time
+#    - Use short durations initially
+#    - Test in dev/staging first
+#
+# 2. OBSERVE AND MEASURE
+#    - Monitor metrics during experiments
+#    - Check logs for errors
+#    - Verify SLO compliance
+#    - Document findings
+#
+# 3. GRADUAL INCREASE
+#    - Increase failure injection slowly
+#    - Test different failure modes
+#    - Combine multiple chaos types
+#
+# 4. SCHEDULE WISELY
+#    - Don't run during peak hours (production)
+#    - Run during business hours initially
+#    - Have on-call engineer available
+#    - Communicate with team
+#
+# 5. SAFETY MEASURES
+#    - Always have rollback plan
+#    - Set clear abort criteria
+#    - Monitor continuously
+#    - Document everything
+#
+# ============================================================================
+# RUNNING EXPERIMENTS
+# ============================================================================
+#
+# Apply single experiment:
+#   kubectl apply -f k8s/chaos/chaos-experiments.yaml --selector=chaos-mesh.org/experiment-name=pod-kill-experiment
+#
+# List active experiments:
+#   kubectl get podchaos,networkchaos,stresschaos,iochaos -A
+#
+# Pause experiment:
+#   kubectl annotate podchaos pod-kill-experiment -n chaos-testing experiment.chaos-mesh.org/pause=true
+#
+# Resume experiment:
+#   kubectl annotate podchaos pod-kill-experiment -n chaos-testing experiment.chaos-mesh.org/pause-
+#
+# Delete experiment:
+#   kubectl delete podchaos pod-kill-experiment -n chaos-testing
+#
+# Delete all experiments:
+#   kubectl delete podchaos,networkchaos,stresschaos,iochaos -n chaos-testing --all
+#
+# ============================================================================
+# MONITORING DURING EXPERIMENTS
+# ============================================================================
+#
+# Watch pods:
+#   watch kubectl get pods -n geo-climate
+#
+# Monitor metrics:
+#   # Open Grafana and watch:
+#   # - Request rate
+#   # - Error rate
+#   # - Latency (P50, P95, P99)
+#   # - Resource usage
+#
+# Check logs:
+#   stern geo-climate-api -n geo-climate
+#
+# Prometheus queries:
+#   # Error rate
+#   rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])
+#
+#   # P95 latency
+#   histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+#
+#   # Pod restarts
+#   increase(kube_pod_container_status_restarts_total[5m])
+#
+# ============================================================================
+# EXPECTED RESULTS
+# ============================================================================
+#
+# Pod Kill Experiment:
+#   ✓ New pod starts automatically
+#   ✓ HPA maintains desired replicas
+#   ✓ Zero downtime (other pods handle traffic)
+#   ✓ No error rate increase
+#
+# Network Delay Experiment:
+#   ✓ Circuit breaker activates if delay > threshold
+#   ✓ Timeouts handled gracefully
+#   ✓ Retry logic works
+#   ✓ Latency increases but requests succeed
+#
+# Network Partition (Database):
+#   ✓ Database queries fail gracefully
+#   ✓ Circuit breaker opens
+#   ✓ Cached responses served
+#   ✓ Errors logged properly
+#   ⚠️ Some requests fail (expected)
+#
+# CPU Stress:
+#   ✓ HPA scales up
+#   ✓ Request distribution balanced
+#   ✓ No individual pod exceeds limits
+#   ⚠️ Latency may increase temporarily
+#
+# Memory Stress:
+#   ✓ Pod stays within memory limits
+#   ✓ Garbage collection works
+#   ⚠️ If OOM, pod restarts gracefully
+#
+# ============================================================================
+# FAILURE CRITERIA (ABORT EXPERIMENT)
+# ============================================================================
+#
+# Abort if:
+#   ✗ Error rate > 5% for > 2 minutes
+#   ✗ All pods crash
+#   ✗ Database data corruption
+#   ✗ > 50% of requests timeout
+#   ✗ Recovery time > 5 minutes
+#   ✗ Cascading failures to other services
+#
+# ============================================================================
